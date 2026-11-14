@@ -1,41 +1,41 @@
 # termux-agent-app
 
-Aplicación nativa Android (APK) que proporciona una **interfaz visual (Chat + Terminal)** y **notificaciones interactivas en segundo plano** para agentes de IA de consola ejecutándose en **Termux** (**Google Antigravity CLI `agy`** y **GitHub Copilot CLI `copilot`**), conectándose mediante **`sshd` estándar** sin modificar ninguno de los agentes.
+Native Android application (APK) providing a **visual interface (Chat + Terminal)** and **interactive background notifications** for CLI AI agents running inside **Termux** (**Google Antigravity CLI `agy`** and **GitHub Copilot CLI `copilot`**), connecting over **standard `sshd`** without modifying either agent.
 
 ---
 
-## Propósito
+## Purpose
 
-Ejecutar agentes de IA directamente en Termux es potente, pero usar interfaces TUI desde la pantalla táctil del móvil tiene dos grandes limitaciones:
-1. **Sin avisos en segundo plano:** si cambias de app o bloqueas el móvil mientras el agente trabaja, no te enteras de cuándo se detiene a pedir permiso para ejecutar un comando ni de cuándo ha terminado su tarea.
-2. **Fricción visual:** leer respuestas largas en Markdown o responder confirmaciones rápidas (`Allow` / `Deny`) en una TUI completa resulta incómodo en pantallas pequeñas.
+Running AI agents directly in Termux is powerful, but using TUI interfaces from a mobile touchscreen has two major limitations:
+1. **No background alerts:** if you switch apps or lock your phone while the agent is working, you have no way to know when it pauses to ask permission to run a command or when it finishes its task.
+2. **Visual friction:** reading long Markdown responses or answering quick confirmations (`Allow` / `Deny`) inside a full-screen TUI is awkward on small displays.
 
-**`termux-agent-app`** resuelve ambos problemas actuando como un cliente visual nativo con un diseño basado en **Adapters dentro de la propia APK**:
-- **Cero modificaciones en los agentes:** no parchea ni altera la instalación ni los ficheros de configuración de `agy` ni de `copilot`.
-- **Cero demonios propios en Termux:** utiliza el servidor OpenSSH estándar de Termux (`sshd` en `127.0.0.1:8022`) para abrir canales PTY interactivos y lectura SFTP.
-- **Notificaciones con botones de acción:** un `ForegroundService` mantiene la sesión viva y lanza notificaciones nativas de Android cuando el agente solicita permisos (**Permitir / Denegar** desde la propia notificación, sin abrir la app) o cuando finaliza un turno.
-
----
-
-## Proyectos Base en Termux
-
-Esta aplicación está diseñada para trabajar sobre las adaptaciones nativas de ambos agentes para Termux (Android/aarch64):
-
-- **GitHub Copilot CLI en Termux:** [cafeteru/copilot-termux](https://github.com/cafeteru/copilot-termux) — Ejecución nativa de `@github/copilot-linux-arm64` en Termux mediante `glibc-runner` sin PRoot.
-- **Google Antigravity CLI (`agy`) en Termux:** [wallentx/antigravity-cli-termux](https://github.com/wallentx/antigravity-cli-termux) — Adaptación nativa de Antigravity CLI (`agy`) para Android/Termux.
+**`termux-agent-app`** solves both issues by acting as a native visual client built around **Adapters inside the APK itself**:
+- **Zero modifications to the agents:** never patches or alters the installation or configuration files of `agy` or `copilot`.
+- **Zero custom daemons in Termux:** uses Termux's standard OpenSSH server (`sshd` on `127.0.0.1:8022`) to open interactive PTY channels and SFTP access.
+- **Actionable notifications:** a `ForegroundService` keeps the session alive and posts native Android notifications whenever an agent requests permission (**Allow / Deny** right from the notification, without opening the app) or completes a turn.
 
 ---
 
-## Arquitectura
+## Base Termux Projects
 
-### Vista General de Componentes
+This application is designed to work on top of the native Termux (Android/aarch64) adaptations of both agents:
+
+- **GitHub Copilot CLI on Termux:** [cafeteru/copilot-termux](https://github.com/cafeteru/copilot-termux) — Native execution of `@github/copilot-linux-arm64` on Termux via `glibc-runner` without PRoot.
+- **Google Antigravity CLI (`agy`) on Termux:** [wallentx/antigravity-cli-termux](https://github.com/wallentx/antigravity-cli-termux) — Native adaptation of Antigravity CLI (`agy`) for Android/Termux.
+
+---
+
+## Architecture
+
+### Component Overview
 
 ```mermaid
 flowchart LR
     subgraph Termux ["Termux (127.0.0.1:8022)"]
         SSH["OpenSSH (sshd)"] --> AGY["agy CLI (PTY)"]
         SSH --> COP["copilot CLI (PTY)"]
-        SSH -. "SFTP (solo lectura)" .-> TR["transcript.jsonl (agy)"]
+        SSH -. "SFTP (read-only)" .-> TR["transcript.jsonl (agy)"]
     end
 
     subgraph APK ["Android APK (termux-agent-app)"]
@@ -43,57 +43,57 @@ flowchart LR
         S <--> BUF["In-Memory Terminal Buffer (2D Screen)"]
         BUF <--> AD1["AgyAdapter"]
         BUF <--> AD2["CopilotAdapter"]
-        AD1 & AD2 --> N["Notificaciones Android (Permitir / Denegar)"]
-        AD1 & AD2 <--> UI["UI Jetpack Compose (Vista Chat + Vista Terminal)"]
+        AD1 & AD2 --> N["Android Notifications (Allow / Deny)"]
+        AD1 & AD2 <--> UI["Jetpack Compose UI (Chat View + Terminal View)"]
     end
 ```
 
-### Máquina de Estados de los Adapters
+### Adapter State Machine
 
-Cada `AgentAdapter` dentro de la APK traduce el estado de la pantalla virtual 2D del PTY a un flujo de estados unificado:
+Each `AgentAdapter` inside the APK translates the 2D virtual PTY screen state into a unified state flow:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> IDLE: Sesión SSH PTY iniciada
-    IDLE --> WORKING: Usuario envía prompt
-    WORKING --> WAITING_PERMISSION: Adapter detecta diálogo de permiso
-    WAITING_PERMISSION --> WORKING: Usuario pulsa Permitir / Denegar (envía tecla al PTY)
-    WORKING --> COMPLETED: Agente vuelve a prompt / fin de turno
-    COMPLETED --> IDLE: Notificación de fin enviada
+    [*] --> IDLE: SSH PTY session started
+    IDLE --> WORKING: User sends prompt
+    WORKING --> WAITING_PERMISSION: Adapter detects permission dialog
+    WAITING_PERMISSION --> WORKING: User taps Allow / Deny (sends key to PTY)
+    WORKING --> COMPLETED: Agent returns to prompt / turn finished
+    COMPLETED --> IDLE: Completion notification sent
 ```
 
 ---
 
-## Cómo funcionan los Adapters (dentro de la APK)
+## How Adapters Work (Inside the APK)
 
-Tanto `agy` como `copilot` son aplicaciones TUI que redibujan la terminal mediante secuencias ANSI. En lugar de parsear `stdout` crudo línea a línea, la APK procesa el flujo PTY a través de un **buffer de terminal en memoria** (2D) y delega la interpretación en un adapter específico por agente:
+Both `agy` and `copilot` are TUI applications that redraw the terminal using ANSI escape sequences. Rather than parsing raw `stdout` line by line, the APK feeds the PTY stream into an **in-memory terminal buffer** (2D) and delegates interpretation to an agent-specific adapter:
 
-| Adapter | Arranque en PTY | Lectura de mensajes para el Chat | Detección y respuesta de permisos |
+| Adapter | PTY Launch | Chat Message Reading | Permission Detection & Response |
 |---|---|---|---|
-| **`AgyAdapter`** | Lanza `agy` en el workspace seleccionado | Combina la pantalla virtual 2D con la lectura en solo-lectura de `~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl` vía SFTP | Detecta el cuadro de confirmación de herramientas en el buffer 2D, extrae el comando y envía la tecla de aprobación/rechazo al PTY |
-| **`CopilotAdapter`** | Lanza `copilot` en el workspace seleccionado | Extrae los bloques de respuesta desde el buffer de pantalla 2D | Detecta el prompt de confirmación de ejecución/herramienta de Copilot y envía la pulsación correspondiente al PTY |
+| **`AgyAdapter`** | Launches `agy` in the selected workspace | Combines the 2D virtual screen with read-only SFTP reading of `~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl` | Detects the tool confirmation box in the 2D buffer, extracts the command, and sends the approval/rejection key to the PTY |
+| **`CopilotAdapter`** | Launches `copilot` in the selected workspace | Extracts response blocks from the 2D screen buffer | Detects Copilot's execution/tool confirmation prompt and sends the corresponding keystroke to the PTY |
 
-Añadir soporte para otro agente de consola en el futuro (p. ej. Claude Code o Gemini CLI) solo requiere implementar una nueva clase `AgentAdapter` en Kotlin dentro de la APK.
+Adding support for another CLI agent in the future (e.g., Claude Code or Gemini CLI) only requires implementing a new `AgentAdapter` class in Kotlin inside the APK.
 
 ---
 
-## Requisitos en Termux
+## Termux Prerequisites
 
-1. Tener instalado al menos uno de los agentes:
+1. Have at least one of the agents installed:
    - [cafeteru/copilot-termux](https://github.com/cafeteru/copilot-termux) (`copilot`)
    - [wallentx/antigravity-cli-termux](https://github.com/wallentx/antigravity-cli-termux) (`agy`)
-2. Instalar y arrancar OpenSSH en Termux:
+2. Install and start OpenSSH in Termux:
    ```bash
    pkg install -y openssh
-   passwd          # O configurar clave pública en ~/.ssh/authorized_keys
-   sshd            # Escucha por defecto en el puerto 8022
+   passwd          # Or configure a public key in ~/.ssh/authorized_keys
+   sshd            # Listens on port 8022 by default
    ```
 
 ---
 
-## Hoja de Ruta (Roadmap)
+## Roadmap
 
-- [ ] **Fase 1 — Base Android & Conexión SSH:** Estructura del proyecto Kotlin/Jetpack Compose, `ForegroundService` persistente y conexión SSH (`127.0.0.1:8022`) con soporte PTY.
-- [ ] **Fase 2 — Motor de Adapters y Terminal 2D:** Integración de buffer de terminal en memoria, interfaz `AgentAdapter`, `AgyAdapter` y `CopilotAdapter`.
-- [ ] **Fase 3 — Notificaciones Interactivas:** Canal de notificaciones de alta prioridad con `PendingIntent` para botones **Permitir** / **Denegar** y aviso de fin de tarea.
-- [ ] **Fase 4 — Interfaz Dual (Chat + Terminal):** Pestaña de Chat limpio con Markdown y selector de agente (`agy` / `copilot`) + pestaña de Terminal directa para inspección manual.
+- [ ] **Phase 1 — Android Base & SSH Connection:** Kotlin/Jetpack Compose project setup, persistent `ForegroundService`, and SSH connection (`127.0.0.1:8022`) with PTY support.
+- [ ] **Phase 2 — Adapter Engine & 2D Terminal:** In-memory terminal buffer integration, `AgentAdapter` interface, `AgyAdapter`, and `CopilotAdapter`.
+- [ ] **Phase 3 — Interactive Notifications:** High-priority notification channel with `PendingIntent` actions for **Allow** / **Deny** buttons and task-completion alerts.
+- [ ] **Phase 4 — Dual Interface (Chat + Terminal):** Clean Chat tab with Markdown rendering and agent selector (`agy` / `copilot`) + direct Terminal tab for manual inspection.
