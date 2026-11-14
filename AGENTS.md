@@ -48,10 +48,29 @@ Each agent implements the common `AgentAdapter` interface:
 
 1. Keep changes small, direct, and free of over-engineering (YAGNI).
 2. Every new feature must be developed on a descriptive branch (`feat/...`, `fix/...`, `docs/...`) and merged via Pull Request into `main`.
-3. **Branch cleanup:** after merging a PR into `main`, always delete the branch both on `origin` and locally:
+3. **Pull Request creation (`gh` via Python skill):** always create PRs using [`github-pr-creator`](.github/skills/github-pr-creator/SKILL.md) ([`create_pr.py`](.github/skills/github-pr-creator/scripts/create_pr.py)) with the 4-block description template (**What / Why / How It Was Tested / Follow-Up & Rollout**), automatic `git merge-tree` conflict checks, and default assignee `cafeteru`. Run `git push` separately before invoking `create_pr.py`.
+4. **Branch cleanup:** after merging a PR into `main`, always delete the branch both on `origin` and locally:
    ```bash
-   gh pr merge <pr-number> --delete-branch
+   gh pr merge <pr-number> --merge --delete-branch
    git checkout main
    git pull origin main
    git branch -d <branch>
    ```
+
+---
+
+## 4. Local Build, Versioning & On-Device APK Testing (Termux)
+
+1. **Versioning:** Keep `versionName = "0.0.1"` (`versionCode = 1`) in [`app/build.gradle.kts`](app/build.gradle.kts) until the initial functional MVP is ready.
+2. **Local Gradle & Android SDK (`aarch64`):**
+   - Termux packages `gradle` (`9.9.1`), `openjdk-21`, and native ARM64 `aapt2` (`/data/data/com.termux/files/usr/bin/aapt2`) are installed locally to validate tests and build APKs without waiting on CI.
+   - Android SDK (`platforms;android-35`, `build-tools;35.0.0`, `build-tools;34.0.0`, `platform-tools`) lives in `/data/data/com.termux/files/home/android-sdk` (invoke `sdkmanager` via `sh $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=$HOME/android-sdk ...` because Termux lacks `/usr/bin/env`).
+   - Git-ignored `local.properties` sets `sdk.dir=/data/data/com.termux/files/home/android-sdk`.
+   - User-level `~/.gradle/gradle.properties` sets `android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2` so local ARM64 builds succeed while GitHub Actions (`ubuntu-latest`) remains unaffected.
+   - Always pass `--no-daemon` when running Gradle in Termux:
+     ```bash
+     gradle testDebugUnitTest assembleDebug --no-daemon
+     ```
+3. **On-Device APK Installation (Android 15):**
+   - Copy the built APK to shared Downloads (`cp -f app/build/outputs/apk/debug/app-debug.apk /sdcard/Download/termux-agent-0.0.1-debug.apk`) and install it from the system Files app (**Mis archivos → Descargas**).
+   - Termux's `com.termux.app.api.file.FileViewReceiverActivity` and `FileReceiverActivity` are disabled via `IPackageManager` (`setComponentEnabledSetting` using `/system/bin/app_process` with `chmod 0400 classes.dex` and `env -u LD_LIBRARY_PATH -u LD_PRELOAD`) so `.apk` files resolve directly to `com.google.android.packageinstaller` instead of `TermuxFileReceiver`.
