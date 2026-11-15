@@ -8,5 +8,6 @@ class AppConfigTest {
     fun defaultSshEndpointMatchesTermuxSshd() {
         assertEquals("127.0.0.1", AppConfig.DEFAULT_SSH_HOST)
         assertEquals(8022, AppConfig.DEFAULT_SSH_PORT)
+        assertEquals("com.termux", AppConfig.TERMUX_PACKAGE_NAME)
     }
 }
