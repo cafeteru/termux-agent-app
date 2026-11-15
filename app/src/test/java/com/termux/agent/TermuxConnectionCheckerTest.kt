@@ -89,4 +89,53 @@ class TermuxConnectionCheckerTest {
         val reason = (state as ConnectionState.Error).reason
         assertTrue(reason.contains("sshd"))
     }
+
+    @Test
+    fun generateKeyPairProducesPemPrivateAndEcdsaPublicKey() {
+        val (privateKeyPem, publicKeyAuthorized) = SshKeyManager.generateKeyPair()
+
+        assertTrue(privateKeyPem.contains("PRIVATE KEY"))
+        assertTrue(publicKeyAuthorized.startsWith("ecdsa-sha2-nistp256 "))
+        assertTrue(publicKeyAuthorized.endsWith("termux-agent"))
+    }
+
+    @Test
+    fun buildAuthorizedKeysCommandTargetsSshAuthorizedKeys() {
+        val cmd = SshKeyManager.buildAuthorizedKeysCommand("  ecdsa-sha2-nistp256 AAAATEST termux-agent  ")
+
+        assertTrue(cmd.contains("ecdsa-sha2-nistp256 AAAATEST termux-agent"))
+        assertTrue(cmd.contains("~/.ssh/authorized_keys"))
+        assertTrue(cmd.contains("chmod 700 ~/.ssh"))
+        assertTrue(cmd.contains("chmod 600 ~/.ssh/authorized_keys"))
+    }
+
+    @Test
+    fun checkConnectionWithAuthReturnsErrorWhenPasswordBlank() {
+        val state = TermuxConnectionChecker.checkConnectionWithAuth(
+            isTermuxInstalled = { true },
+            config = SshConfig(
+                authMethod = AuthMethod.PASSWORD,
+                password = "   "
+            )
+        )
+
+        assertTrue(state is ConnectionState.Error)
+        val reason = (state as ConnectionState.Error).reason
+        assertTrue(reason.contains("contraseña"))
+    }
+
+    @Test
+    fun checkConnectionWithAuthReturnsErrorWhenPublicKeyPrivatePartMissing() {
+        val state = TermuxConnectionChecker.checkConnectionWithAuth(
+            isTermuxInstalled = { true },
+            config = SshConfig(
+                authMethod = AuthMethod.PUBLIC_KEY,
+                privateKeyPem = ""
+            )
+        )
+
+        assertTrue(state is ConnectionState.Error)
+        val reason = (state as ConnectionState.Error).reason
+        assertTrue(reason.contains("clave"))
+    }
 }

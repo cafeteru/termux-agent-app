@@ -1,6 +1,10 @@
 package com.termux.agent
 
 import android.content.pm.PackageManager
+import com.jcraft.jsch.JSch
+import com.jcraft.jsch.Session
+import com.jcraft.jsch.UIKeyboardInteractive
+import com.jcraft.jsch.UserInfo
 import java.net.ConnectException
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -76,6 +80,125 @@ object TermuxConnectionChecker {
             ConnectionState.Error(
                 "Error al conectar a $host:$port (${e.javaClass.simpleName}): ${e.message ?: "Error desconocido"}"
             )
+        }
+    }
+
+    /**
+     * Verifies Termux presence and authenticates a real SSH session using password or public key.
+     */
+    fun checkConnectionWithAuth(
+        isTermuxInstalled: () -> Boolean,
+        config: SshConfig,
+        timeoutMs: Int = AppConfig.DEFAULT_CONNECT_TIMEOUT_MS
+    ): ConnectionState {
+        if (!isTermuxInstalled()) {
+            return ConnectionState.Error(
+                "Termux (${AppConfig.TERMUX_PACKAGE_NAME}) no está instalado."
+            )
+        }
+        if (config.port !in 1..65535) {
+            return ConnectionState.Error(
+                "Puerto SSH inválido (${config.port}). Usa un valor entre 1 y 65535."
+            )
+        }
+        if (config.authMethod == AuthMethod.PASSWORD && config.password.isBlank()) {
+            return ConnectionState.Error(
+                "Introduce la contraseña de Termux (configurada con 'passwd') o cambia a Clave SSH."
+            )
+        }
+        if (config.authMethod == AuthMethod.PUBLIC_KEY && config.privateKeyPem.isBlank()) {
+            return ConnectionState.Error(
+                "No hay clave SSH configurada. Pulsa 'Regenerar clave'."
+            )
+        }
+
+        var session: Session? = null
+        return try {
+            val jsch = JSch()
+            if (config.authMethod == AuthMethod.PUBLIC_KEY) {
+                jsch.addIdentity(
+                    "termux-agent-key",
+                    config.privateKeyPem.toByteArray(Charsets.UTF_8),
+                    null,
+                    null
+                )
+            }
+            val username = config.username.ifBlank { AppConfig.DEFAULT_SSH_USER }
+            session = jsch.getSession(username, config.host, config.port).apply {
+                if (config.authMethod == AuthMethod.PASSWORD) {
+                    setPassword(config.password)
+                    setConfig("PreferredAuthentications", "password,keyboard-interactive")
+                    userInfo = PasswordUserInfo(config.password)
+                } else {
+                    setConfig("PreferredAuthentications", "publickey")
+                }
+                setConfig("StrictHostKeyChecking", "no")
+                connect(timeoutMs)
+            }
+            val serverBanner = session.serverVersion ?: "SSH-2.0"
+            ConnectionState.Connected(config.host, config.port, serverBanner)
+        } catch (e: Exception) {
+            mapSshError(e, config)
+        } finally {
+            session?.disconnect()
+        }
+    }
+
+    private fun mapSshError(e: Exception, config: SshConfig): ConnectionState.Error {
+        val causes = generateSequence<Throwable>(e) { it.cause }.toList()
+        val messages = causes.mapNotNull { it.message }.joinToString(" | ")
+
+        return when {
+            causes.any { it is ConnectException } ||
+                messages.contains("Connection refused", ignoreCase = true) -> {
+                ConnectionState.Error(
+                    "Conexión rechazada en ${config.host}:${config.port}. Asegúrate de ejecutar 'sshd' en Termux."
+                )
+            }
+            causes.any { it is SocketTimeoutException } ||
+                messages.contains("timeout", ignoreCase = true) ||
+                messages.contains("timed out", ignoreCase = true) -> {
+                ConnectionState.Error(
+                    "Tiempo de espera agotado al conectar a ${config.host}:${config.port}."
+                )
+            }
+            messages.contains("Auth fail", ignoreCase = true) ||
+                messages.contains("Auth cancel", ignoreCase = true) -> {
+                val hint = if (config.authMethod == AuthMethod.PASSWORD) {
+                    "Contraseña rechazada por Termux. Verifica tu contraseña ejecutando 'passwd' en Termux."
+                } else {
+                    "Clave pública rechazada. Copia el comando de abajo y pégalo en Termux para autorizar la clave en ~/.ssh/authorized_keys."
+                }
+                ConnectionState.Error(hint)
+            }
+            else -> {
+                ConnectionState.Error(
+                    "Error SSH al conectar a ${config.host}:${config.port} (${e.javaClass.simpleName}): ${e.message ?: "Error desconocido"}"
+                )
+            }
+        }
+    }
+
+    private class PasswordUserInfo(private val passwordValue: String) : UserInfo, UIKeyboardInteractive {
+        override fun getPassphrase(): String? = null
+        override fun getPassword(): String = passwordValue
+        override fun promptPassword(message: String?): Boolean = true
+        override fun promptPassphrase(message: String?): Boolean = false
+        override fun promptYesNo(message: String?): Boolean = true
+        override fun showMessage(message: String?) = Unit
+        override fun promptKeyboardInteractive(
+            destination: String?,
+            name: String?,
+            instruction: String?,
+            prompt: Array<out String>?,
+            echo: BooleanArray?
+        ): Array<String>? {
+            if (prompt.isNullOrEmpty()) return emptyArray()
+            return if (prompt.size == 1 && echo?.getOrNull(0) != true) {
+                arrayOf(passwordValue)
+            } else {
+                null
+            }
         }
     }
 }
