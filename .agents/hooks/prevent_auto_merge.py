@@ -55,7 +55,7 @@ def evaluate_hook(payload: dict) -> dict:
             ),
         }
 
-    return {}
+    return {"decision": "ask"}
 
 
 def run_self_tests() -> None:
@@ -65,14 +65,14 @@ def run_self_tests() -> None:
             "toolCall": {"name": "run_command", "args": {"CommandLine": "gradle test"}},
             "lastUserInput": "run tests",
         }
-    ) == {}
+    ) == {"decision": "ask"}
 
     assert evaluate_hook(
         {
             "toolCall": {"name": "run_command", "args": {"CommandLine": "git push -u origin feat/my-branch"}},
             "lastUserInput": "push branch",
         }
-    ) == {}
+    ) == {"decision": "ask"}
 
     res_no_request = evaluate_hook(
         {
