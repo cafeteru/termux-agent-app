@@ -1,0 +1,16 @@
+{
+  "prevent-auto-merge": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/prevent_auto_merge.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -49,7 +49,8 @@ Each agent implements the common `AgentAdapter` interface:
 1. Keep changes small, direct, and free of over-engineering (YAGNI).
 2. Every new feature must be developed on a descriptive branch (`feat/...`, `fix/...`, `docs/...`) and merged via Pull Request into `main`.
 3. **Pull Request creation (`gh` via Python skill):** always create PRs using [`github-pr-creator`](.github/skills/github-pr-creator/SKILL.md) ([`create_pr.py`](.github/skills/github-pr-creator/scripts/create_pr.py)) with the 4-block description template (**What / Why / How It Was Tested / Follow-Up & Rollout**), automatic `git merge-tree` conflict checks, and default assignee `cafeteru`. Run `git push` separately before invoking `create_pr.py`.
-4. **Branch cleanup:** after merging a PR into `main`, always delete the branch both on `origin` and locally:
+4. **No auto-merge:** Nunca ejecutar `gh pr merge` automáticamente después de crear un PR. Dejar el PR abierto y esperar a que el usuario lo revise o pida explícitamente hacer el merge (protegido por `.agents/hooks.json` y `.githooks/pre-push`).
+5. **Branch cleanup (solo tras un merge aprobado por el usuario):** after a PR is merged into `main`, delete the branch both on `origin` and locally:
    ```bash
    gh pr merge <pr-number> --merge --delete-branch
    git checkout main
