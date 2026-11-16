@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -322,53 +321,55 @@ fun StatusScreen(modifier: Modifier = Modifier) {
 
             HorizontalDivider()
 
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                ConnectionStatusBanner(state = sessionState)
+            if (sessionState is ConnectionState.Connected) {
+                PtyTerminalCard(
+                    ptyOutput = ptyOutput,
+                    onSendCommand = { command ->
+                        AgentForegroundService.sendCommand(context, command)
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(8.dp)
+                )
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    ConnectionStatusBanner(state = sessionState)
 
-                if (sessionState is ConnectionState.Error || sessionState is ConnectionState.Disconnected) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        FilledIconButton(
-                            onClick = { scope.launch { drawerState.open() } }
+                    if (sessionState is ConnectionState.Error || sessionState is ConnectionState.Disconnected) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Configurar SSH"
-                            )
-                        }
-                        OutlinedIconButton(
-                            onClick = { AgentForegroundService.connect(context) }
-                        ) {
-                            val isDisconnected = sessionState is ConnectionState.Disconnected
-                            Icon(
-                                imageVector = if (isDisconnected) {
-                                    Icons.Default.PlayArrow
-                                } else {
-                                    Icons.Default.Refresh
-                                },
-                                contentDescription = if (isDisconnected) "Conectar" else "Reintentar"
-                            )
+                            FilledIconButton(
+                                onClick = { scope.launch { drawerState.open() } }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = "Configurar SSH"
+                                )
+                            }
+                            OutlinedIconButton(
+                                onClick = { AgentForegroundService.connect(context) }
+                            ) {
+                                val isDisconnected = sessionState is ConnectionState.Disconnected
+                                Icon(
+                                    imageVector = if (isDisconnected) {
+                                        Icons.Default.PlayArrow
+                                    } else {
+                                        Icons.Default.Refresh
+                                    },
+                                    contentDescription = if (isDisconnected) "Conectar" else "Reintentar"
+                                )
+                            }
                         }
                     }
-                }
-
-                if (sessionState is ConnectionState.Connected) {
-                    PtyTerminalCard(
-                        ptyOutput = ptyOutput,
-                        onSendCommand = { command ->
-                            AgentForegroundService.sendCommand(context, command)
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
                 }
             }
         }
@@ -600,6 +601,7 @@ private fun PtyTerminalCard(
 ) {
     var commandText by rememberSaveable { mutableStateOf("") }
     val outputScrollState = rememberScrollState()
+    val styledOutput = remember(ptyOutput) { AnsiTextParser.parse(ptyOutput) }
     val submitCommand = {
         onSendCommand(commandText)
         commandText = ""
@@ -609,61 +611,51 @@ private fun PtyTerminalCard(
         outputScrollState.animateScrollTo(outputScrollState.maxValue)
     }
 
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-        )
-    ) {
-        Column(
+    Column(modifier = modifier) {
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .weight(1f),
+            shape = MaterialTheme.shapes.small,
+            color = Color(0xFF121212)
         ) {
-            Text(
-                text = "Consola PTY SSH",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.semantics { heading() }
-            )
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 140.dp, max = 260.dp),
-                shape = MaterialTheme.shapes.small,
-                color = MaterialTheme.colorScheme.surface
-            ) {
-                SelectionContainer {
-                    Text(
-                        text = ptyOutput.ifBlank { "(esperando salida de Termux...)" },
-                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .verticalScroll(outputScrollState)
-                            .padding(10.dp)
-                    )
-                }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = commandText,
-                    onValueChange = { commandText = it },
-                    label = { Text("Comando") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { submitCommand() }),
-                    modifier = Modifier.weight(1f)
+            SelectionContainer(modifier = Modifier.fillMaxSize()) {
+                Text(
+                    text = if (styledOutput.isEmpty()) {
+                        AnnotatedString("(esperando salida de Termux...)")
+                    } else {
+                        styledOutput
+                    },
+                    color = Color(0xFFE0E0E0),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(outputScrollState)
+                        .padding(10.dp)
                 )
-                FilledIconButton(onClick = submitCommand) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Enviar comando"
-                    )
-                }
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = commandText,
+                onValueChange = { commandText = it },
+                label = { Text("Comando") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { submitCommand() }),
+                modifier = Modifier.weight(1f)
+            )
+            FilledIconButton(onClick = submitCommand) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Send,
+                    contentDescription = "Enviar comando"
+                )
             }
         }
     }

@@ -1,5 +1,7 @@
 package com.termux.agent
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -196,5 +198,18 @@ class TermuxConnectionCheckerTest {
 
         assertEquals(ConnectionState.Disconnected, SshSessionManager.connectionState.value)
         assertEquals("", SshSessionManager.ptyOutput.value)
+    }
+
+    @Test
+    fun ansiTextParserRendersColorsAndStripsControlSequences() {
+        val parsed = AnsiTextParser.parse("\u001B[?2004h\u001B[1;32muser@termux\u001B[0m:~$ ")
+
+        assertEquals("user@termux:~$ ", parsed.text)
+        assertEquals(1, parsed.spanStyles.size)
+        val span = parsed.spanStyles.first()
+        assertEquals(0, span.start)
+        assertEquals("user@termux".length, span.end)
+        assertEquals(Color(0xFF4E9A06), span.item.color)
+        assertEquals(FontWeight.Bold, span.item.fontWeight)
     }
 }
