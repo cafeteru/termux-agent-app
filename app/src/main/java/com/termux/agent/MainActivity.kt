@@ -8,11 +8,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -22,17 +26,23 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -57,6 +67,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -68,6 +80,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
@@ -327,6 +340,9 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                     ptyOutput = ptyOutput,
                     onSendCommand = { command ->
                         AgentForegroundService.sendCommand(context, command)
+                    },
+                    onSendRaw = { raw ->
+                        AgentForegroundService.sendRaw(context, raw)
                     },
                     modifier = Modifier
                         .fillMaxSize()
@@ -598,11 +614,22 @@ private fun ConnectionStatusBanner(
 private fun PtyTerminalCard(
     ptyOutput: String,
     onSendCommand: (String) -> Unit,
+    onSendRaw: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var commandText by rememberSaveable { mutableStateOf("") }
+    var ctrlArmed by rememberSaveable { mutableStateOf(false) }
+    var altArmed by rememberSaveable { mutableStateOf(false) }
     val outputScrollState = rememberScrollState()
     val styledOutput = remember(ptyOutput) { AnsiTextParser.parse(ptyOutput) }
+    val commandFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val terminalInteractionSource = remember { MutableInteractionSource() }
+    val focusCommandField = {
+        commandFocusRequester.requestFocus()
+        keyboardController?.show()
+        Unit
+    }
     val submitCommand = {
         onSendCommand(commandText)
         commandText = ""
@@ -616,7 +643,12 @@ private fun PtyTerminalCard(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f),
+                .weight(1f)
+                .clickable(
+                    interactionSource = terminalInteractionSource,
+                    indication = null,
+                    onClick = focusCommandField
+                ),
             shape = MaterialTheme.shapes.small,
             color = Color(0xFF121212)
         ) {
@@ -632,21 +664,52 @@ private fun PtyTerminalCard(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(outputScrollState)
+                        .clickable(
+                            interactionSource = terminalInteractionSource,
+                            indication = null,
+                            onClick = focusCommandField
+                        )
                         .padding(10.dp)
                 )
             }
         }
+        ExtraKeysRow(
+            ctrlArmed = ctrlArmed,
+            altArmed = altArmed,
+            onToggleCtrl = {
+                ctrlArmed = !ctrlArmed
+                focusCommandField()
+            },
+            onToggleAlt = {
+                altArmed = !altArmed
+                focusCommandField()
+            },
+            onSendSequence = { sequence ->
+                onSendRaw(SshSessionManager.applyModifiers(sequence, ctrl = false, alt = altArmed))
+                ctrlArmed = false
+                altArmed = false
+                focusCommandField()
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp)
+        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp),
+                .padding(top = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedTextField(
                 value = commandText,
                 onValueChange = { updated ->
-                    if (updated.contains('\n') || updated.contains('\r')) {
+                    if ((ctrlArmed || altArmed) && updated.length > commandText.length) {
+                        val ch = updated.last().toString()
+                        onSendRaw(SshSessionManager.applyModifiers(ch, ctrl = ctrlArmed, alt = altArmed))
+                        ctrlArmed = false
+                        altArmed = false
+                    } else if (updated.contains('\n') || updated.contains('\r')) {
                         commandText = updated.replace("\r", "").replace("\n", "")
                         submitCommand()
                     } else {
@@ -663,6 +726,7 @@ private fun PtyTerminalCard(
                 ),
                 modifier = Modifier
                     .weight(1f)
+                    .focusRequester(commandFocusRequester)
                     .onPreviewKeyEvent { event ->
                         if (event.type == KeyEventType.KeyDown &&
                             (event.key == Key.Enter || event.key == Key.NumPadEnter)
@@ -681,6 +745,114 @@ private fun PtyTerminalCard(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ExtraKeysRow(
+    ctrlArmed: Boolean,
+    altArmed: Boolean,
+    onToggleCtrl: () -> Unit,
+    onToggleAlt: () -> Unit,
+    onSendSequence: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ExtraKeyButton(
+            onClick = { onSendSequence("\u001B") },
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(text = "ESC", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        }
+        ExtraKeyButton(
+            onClick = { onSendSequence("\t") },
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(text = "TAB", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        }
+        ExtraKeyButton(
+            active = ctrlArmed,
+            onClick = onToggleCtrl,
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(text = "CTRL", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        }
+        ExtraKeyButton(
+            active = altArmed,
+            onClick = onToggleAlt,
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(text = "ALT", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        }
+        ExtraKeyButton(
+            onClick = { onSendSequence("\u001B[D") },
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                contentDescription = "Flecha izquierda"
+            )
+        }
+        ExtraKeyButton(
+            onClick = { onSendSequence("\u001B[B") },
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowDown,
+                contentDescription = "Flecha abajo"
+            )
+        }
+        ExtraKeyButton(
+            onClick = { onSendSequence("\u001B[A") },
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowUp,
+                contentDescription = "Flecha arriba"
+            )
+        }
+        ExtraKeyButton(
+            onClick = { onSendSequence("\u001B[C") },
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = "Flecha derecha"
+            )
+        }
+    }
+}
+
+@Composable
+private fun ExtraKeyButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    active: Boolean = false,
+    content: @Composable () -> Unit
+) {
+    FilledTonalButton(
+        onClick = onClick,
+        modifier = modifier.height(36.dp),
+        shape = MaterialTheme.shapes.extraSmall,
+        contentPadding = PaddingValues(0.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = if (active) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
+            contentColor = if (active) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
+    ) {
+        content()
     }
 }
 

@@ -218,4 +218,12 @@ class TermuxConnectionCheckerTest {
         assertEquals("\r", String(SshSessionManager.formatCommandPayload(""), Charsets.UTF_8))
         assertEquals("ls\r", String(SshSessionManager.formatCommandPayload("ls"), Charsets.UTF_8))
     }
+
+    @Test
+    fun applyModifiersTransformsCtrlAndAltCorrectly() {
+        assertEquals("\u0003", SshSessionManager.applyModifiers("c", ctrl = true, alt = false))
+        assertEquals("\u0004", SshSessionManager.applyModifiers("d", ctrl = true, alt = false))
+        assertEquals("\u001Bf", SshSessionManager.applyModifiers("f", ctrl = false, alt = true))
+        assertEquals("\u001B\u0003", SshSessionManager.applyModifiers("c", ctrl = true, alt = true))
+    }
 }

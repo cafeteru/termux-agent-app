@@ -96,25 +96,40 @@ class SshPtySession {
     /**
      * Writes a command line to the active PTY shell output stream.
      */
-    fun sendCommand(command: String): Boolean {
-        val activeOutput = synchronized(lock) {
-            if (channel?.isConnected == true) outputStream else null
-        } ?: return false
+    fun sendCommand(command: String): Boolean =
+        writeBytes(SshSessionManager.formatCommandPayload(command))
 
-        return try {
-            activeOutput.write(SshSessionManager.formatCommandPayload(command))
-            activeOutput.flush()
-            true
-        } catch (_: Exception) {
-            false
-        }
-    }
+    /**
+     * Writes raw terminal bytes (escape sequences, control chars) without appending carriage return.
+     */
+    fun sendRaw(raw: String): Boolean = writeBytes(raw.toByteArray(Charsets.UTF_8))
 
     /**
      * Enqueues a command write on a daemon writer thread without blocking UI callers.
      */
     fun sendCommandAsync(command: String) {
         writeExecutor.execute { sendCommand(command) }
+    }
+
+    /**
+     * Enqueues raw terminal bytes on a daemon writer thread without blocking UI callers.
+     */
+    fun sendRawAsync(raw: String) {
+        writeExecutor.execute { sendRaw(raw) }
+    }
+
+    private fun writeBytes(payload: ByteArray): Boolean {
+        val activeOutput = synchronized(lock) {
+            if (channel?.isConnected == true) outputStream else null
+        } ?: return false
+
+        return try {
+            activeOutput.write(payload)
+            activeOutput.flush()
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /**
@@ -234,6 +249,20 @@ object SshSessionManager {
     internal fun formatCommandPayload(command: String): ByteArray =
         (command + "\r").toByteArray(Charsets.UTF_8)
 
+    /**
+     * Applies sticky CTRL and ALT modifiers to a character or terminal escape sequence.
+     */
+    fun applyModifiers(input: String, ctrl: Boolean, alt: Boolean): String {
+        if (input.isEmpty()) return ""
+        val withCtrl = if (ctrl) {
+            val ctrlChar = ((input[0].uppercaseChar().code) and 0x1F).toChar()
+            ctrlChar + input.substring(1)
+        } else {
+            input
+        }
+        return if (alt) "\u001B$withCtrl" else withCtrl
+    }
+
     fun connect(
         isTermuxInstalled: () -> Boolean,
         config: SshConfig,
@@ -243,6 +272,10 @@ object SshSessionManager {
     fun sendCommand(command: String): Boolean = activeSession.sendCommand(command)
 
     fun sendCommandAsync(command: String) = activeSession.sendCommandAsync(command)
+
+    fun sendRaw(raw: String): Boolean = activeSession.sendRaw(raw)
+
+    fun sendRawAsync(raw: String) = activeSession.sendRawAsync(raw)
 
     fun disconnect() = activeSession.disconnect(updateState = true)
 }

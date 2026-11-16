@@ -180,6 +180,14 @@ class AgentForegroundService : Service() {
         }
 
         /**
+         * Dispatches raw terminal bytes (ESC, TAB, CTRL, ALT, arrows) without blocking the UI thread.
+         */
+        @Suppress("UNUSED_PARAMETER")
+        fun sendRaw(context: Context, raw: String) {
+            SshSessionManager.sendRawAsync(raw)
+        }
+
+        /**
          * Requests disconnecting the active PTY session and stopping the foreground service.
          */
         fun disconnect(context: Context) {
