@@ -98,4 +98,31 @@ class TerminalBufferTest {
         buffer.feed("\u0008\u0008\u0008\u0008Download/\u001B[K")
         assertEquals("cd Download/", TerminalBuffer.extractCommandFromLine(buffer.getCurrentLineText()))
     }
+
+    @Test
+    fun extractCommandHandlesGitBranchPromptAndArgumentsWithDollarSign() {
+        assertEquals(
+            "git status",
+            TerminalBuffer.extractCommandFromLine("~/termux-agent-app (feat/pty) $ git status")
+        )
+        assertEquals(
+            "echo \"$ USER\" > file.txt",
+            TerminalBuffer.extractCommandFromLine("termux@local:~$ echo \"$ USER\" > file.txt")
+        )
+    }
+
+    @Test
+    fun extractCommandReturnsNullForStandardOutputAndLogs() {
+        assertEquals(null, TerminalBuffer.extractCommandFromLine("drwxr-xr-x 2 termux termux 4096 Nov 16 20:00 Download"))
+        assertEquals(null, TerminalBuffer.extractCommandFromLine("ls: cannot access '/nonexistent': No such file or directory"))
+        assertEquals(null, TerminalBuffer.extractCommandFromLine("PING 127.0.0.1 (127.0.0.1) 56(84) bytes of data."))
+    }
+
+    @Test
+    fun multiLineBufferTracksCurrentCommandLineAcrossOutputCycles() {
+        val buffer = TerminalBuffer()
+        buffer.feed("termux@local:~$ ls\r\nfile1.txt  file2.txt\r\ntermux@local:~$ cat file1.txt")
+        val currentLine = buffer.getCurrentLineText()
+        assertEquals("cat file1.txt", TerminalBuffer.extractCommandFromLine(currentLine))
+    }
 }
