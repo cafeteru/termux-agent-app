@@ -648,14 +648,14 @@ private fun PtyTerminalCard(
     val terminalInteractionSource = remember { MutableInteractionSource() }
 
     val focusCommandField = {
-        commandFocusRequester.requestFocus()
+        runCatching { commandFocusRequester.requestFocus() }
         keyboardController?.show()
         isCommandFocused = true
         Unit
     }
 
     val focusInteractiveField = {
-        interactiveFocusRequester.requestFocus()
+        runCatching { interactiveFocusRequester.requestFocus() }
         keyboardController?.show()
         isInteractiveFocused = true
         Unit
@@ -780,6 +780,14 @@ private fun PtyTerminalCard(
         outputScrollState.scrollTo(outputScrollState.maxValue)
     }
 
+    LaunchedEffect(isInteractiveMode) {
+        if (isInteractiveMode) {
+            focusInteractiveField()
+        } else {
+            focusCommandField()
+        }
+    }
+
     Column(modifier = modifier) {
         Row(
             modifier = Modifier
@@ -796,18 +804,12 @@ private fun PtyTerminalCard(
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 FilterChip(
                     selected = isInteractiveMode,
-                    onClick = {
-                        isInteractiveMode = true
-                        focusInteractiveField()
-                    },
+                    onClick = { isInteractiveMode = true },
                     label = { Text("Directo", style = MaterialTheme.typography.labelSmall) }
                 )
                 FilterChip(
                     selected = !isInteractiveMode,
-                    onClick = {
-                        isInteractiveMode = false
-                        focusCommandField()
-                    },
+                    onClick = { isInteractiveMode = false },
                     label = { Text("Comando", style = MaterialTheme.typography.labelSmall) }
                 )
             }
@@ -921,7 +923,8 @@ private fun PtyTerminalCard(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 6.dp),
+                    .padding(top = 6.dp)
+                    .clickable(onClick = focusInteractiveField),
                 shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
             ) {
