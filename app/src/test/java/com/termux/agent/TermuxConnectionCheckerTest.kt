@@ -212,4 +212,10 @@ class TermuxConnectionCheckerTest {
         assertEquals(Color(0xFF4E9A06), span.item.color)
         assertEquals(FontWeight.Bold, span.item.fontWeight)
     }
+
+    @Test
+    fun formatCommandPayloadAppendsCarriageReturnForEmptyAndNonEmptyCommands() {
+        assertEquals("\r", String(SshSessionManager.formatCommandPayload(""), Charsets.UTF_8))
+        assertEquals("ls\r", String(SshSessionManager.formatCommandPayload("ls"), Charsets.UTF_8))
+    }
 }

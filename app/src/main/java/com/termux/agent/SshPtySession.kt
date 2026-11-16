@@ -98,7 +98,7 @@ class SshPtySession {
         } ?: return false
 
         return try {
-            activeOutput.write((command + "\n").toByteArray(Charsets.UTF_8))
+            activeOutput.write(SshSessionManager.formatCommandPayload(command))
             activeOutput.flush()
             true
         } catch (_: Exception) {
@@ -216,6 +216,12 @@ object SshSessionManager {
         val combined = current + normalized
         return if (combined.length <= maxChars) combined else combined.takeLast(maxChars)
     }
+
+    /**
+     * Encodes a command with a PTY carriage return (`\r`) so both shells and raw TUIs treat it as Enter.
+     */
+    internal fun formatCommandPayload(command: String): ByteArray =
+        (command + "\r").toByteArray(Charsets.UTF_8)
 
     fun connect(
         isTermuxInstalled: () -> Boolean,

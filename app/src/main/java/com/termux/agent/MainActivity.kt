@@ -12,9 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -60,6 +58,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -143,7 +146,6 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .imePadding()
                         .verticalScroll(rememberScrollState())
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -276,9 +278,7 @@ fun StatusScreen(modifier: Modifier = Modifier) {
         }
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .safeDrawingPadding()
+            modifier = Modifier.fillMaxSize()
         ) {
             Row(
                 modifier = Modifier
@@ -644,12 +644,34 @@ private fun PtyTerminalCard(
         ) {
             OutlinedTextField(
                 value = commandText,
-                onValueChange = { commandText = it },
+                onValueChange = { updated ->
+                    if (updated.contains('\n') || updated.contains('\r')) {
+                        commandText = updated.replace("\r", "").replace("\n", "")
+                        submitCommand()
+                    } else {
+                        commandText = updated
+                    }
+                },
                 label = { Text("Comando") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { submitCommand() }),
-                modifier = Modifier.weight(1f)
+                keyboardActions = KeyboardActions(
+                    onSend = { submitCommand() },
+                    onDone = { submitCommand() },
+                    onGo = { submitCommand() }
+                ),
+                modifier = Modifier
+                    .weight(1f)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown &&
+                            (event.key == Key.Enter || event.key == Key.NumPadEnter)
+                        ) {
+                            submitCommand()
+                            true
+                        } else {
+                            false
+                        }
+                    }
             )
             FilledIconButton(onClick = submitCommand) {
                 Icon(
