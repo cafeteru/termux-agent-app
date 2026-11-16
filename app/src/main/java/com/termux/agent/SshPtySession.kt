@@ -25,6 +25,7 @@ class SshPtySession {
 
     private val _ptyOutput = MutableStateFlow("")
     val ptyOutput: StateFlow<String> = _ptyOutput.asStateFlow()
+    private val terminalBuffer = TerminalBuffer()
 
     private var session: Session? = null
     private var channel: ChannelShell? = null
@@ -43,7 +44,10 @@ class SshPtySession {
     ): ConnectionState {
         disconnect(updateState = false)
 
-        val currentGeneration = synchronized(lock) { ++sessionGeneration }
+        val currentGeneration = synchronized(lock) {
+            terminalBuffer.clear()
+            ++sessionGeneration
+        }
         _ptyOutput.value = ""
         _connectionState.value = ConnectionState.Checking
 
@@ -137,6 +141,7 @@ class SshPtySession {
      */
     fun disconnect(updateState: Boolean = true) {
         val resources = synchronized(lock) {
+            terminalBuffer.clear()
             sessionGeneration++
             clearSessionRefsLocked()
         }
@@ -162,9 +167,11 @@ class SshPtySession {
                 if (!isCurrentSession) break
 
                 val chunk = String(buffer, 0, bytesRead, Charsets.UTF_8)
-                _ptyOutput.update { current ->
-                    SshSessionManager.appendBoundedOutput(current, chunk)
+                val rendered = synchronized(lock) {
+                    terminalBuffer.feed(chunk)
+                    terminalBuffer.render()
                 }
+                _ptyOutput.value = rendered
             }
         } catch (_: Exception) {
             // Only surface an error if disconnect() has not already invalidated this generation.
@@ -238,9 +245,13 @@ object SshSessionManager {
         maxChars: Int = MAX_OUTPUT_CHARS
     ): String {
         if (maxChars <= 0) return ""
-        val normalized = chunk.replace("\r", "")
-        val combined = current + normalized
-        return if (combined.length <= maxChars) combined else combined.takeLast(maxChars)
+        val buffer = TerminalBuffer()
+        if (current.isNotEmpty()) {
+            buffer.feed(current)
+        }
+        buffer.feed(chunk)
+        val rendered = buffer.render()
+        return if (rendered.length <= maxChars) rendered else rendered.takeLast(maxChars)
     }
 
     /**
