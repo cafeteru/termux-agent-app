@@ -134,11 +134,24 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = "Configuración SSH",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.semantics { heading() }
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Configuración SSH",
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier
+                                .weight(1f)
+                                .semantics { heading() }
+                        )
+                        TextButton(
+                            onClick = { scope.launch { drawerState.close() } }
+                        ) {
+                            Text(text = "✕ Cerrar")
+                        }
+                    }
                     Text(
                         text = "Target: ${config.host}:${portText.ifBlank { config.port.toString() }}",
                         style = MaterialTheme.typography.bodySmall,
