@@ -503,7 +503,11 @@ private fun PasswordAuthSection(
             PasswordVisualTransformation()
         },
         trailingIcon = {
-            IconButton(onClick = onTogglePasswordVisibility) {
+            IconButton(
+                onClick = onTogglePasswordVisibility,
+                // Keep toggle semantics separate from OutlinedTextField's mergeDescendants=true.
+                modifier = Modifier.semantics(mergeDescendants = true) {}
+            ) {
                 Icon(
                     imageVector = if (passwordVisible) VisibilityOffIcon else VisibilityIcon,
                     contentDescription = if (passwordVisible) {
