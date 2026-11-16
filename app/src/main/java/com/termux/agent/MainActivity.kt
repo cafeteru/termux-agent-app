@@ -20,20 +20,30 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -49,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -146,10 +157,13 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                                 .weight(1f)
                                 .semantics { heading() }
                         )
-                        TextButton(
+                        IconButton(
                             onClick = { scope.launch { drawerState.close() } }
                         ) {
-                            Text(text = "✕ Cerrar")
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Cerrar configuración SSH"
+                            )
                         }
                     }
                     Text(
@@ -268,10 +282,13 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OutlinedButton(
+                IconButton(
                     onClick = { scope.launch { drawerState.open() } }
                 ) {
-                    Text(text = "☰ SSH")
+                    Icon(
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "Abrir configuración SSH"
+                    )
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -285,12 +302,13 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                     )
                 }
                 if (sessionState !is ConnectionState.Disconnected) {
-                    TextButton(
+                    IconButton(
                         onClick = { AgentForegroundService.disconnect(context) }
                     ) {
-                        Text(
-                            text = "Desconectar",
-                            color = MaterialTheme.colorScheme.error
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Desconectar SSH",
+                            tint = MaterialTheme.colorScheme.error
                         )
                     }
                 }
@@ -310,25 +328,28 @@ fun StatusScreen(modifier: Modifier = Modifier) {
 
                 if (sessionState is ConnectionState.Error || sessionState is ConnectionState.Disconnected) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Button(
-                            onClick = { scope.launch { drawerState.open() } },
-                            modifier = Modifier.weight(1f)
+                        FilledIconButton(
+                            onClick = { scope.launch { drawerState.open() } }
                         ) {
-                            Text(text = "Configurar SSH")
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Configurar SSH"
+                            )
                         }
-                        OutlinedButton(
-                            onClick = { AgentForegroundService.connect(context) },
-                            modifier = Modifier.weight(1f)
+                        OutlinedIconButton(
+                            onClick = { AgentForegroundService.connect(context) }
                         ) {
-                            Text(
-                                text = if (sessionState is ConnectionState.Disconnected) {
-                                    "Conectar"
+                            val isDisconnected = sessionState is ConnectionState.Disconnected
+                            Icon(
+                                imageVector = if (isDisconnected) {
+                                    Icons.Default.PlayArrow
                                 } else {
-                                    "Reintentar"
-                                }
+                                    Icons.Default.Refresh
+                                },
+                                contentDescription = if (isDisconnected) "Conectar" else "Reintentar"
                             )
                         }
                     }
@@ -458,8 +479,16 @@ private fun PasswordAuthSection(
             PasswordVisualTransformation()
         },
         trailingIcon = {
-            TextButton(onClick = onTogglePasswordVisibility) {
-                Text(text = if (passwordVisible) "Ocultar" else "Mostrar")
+            val toggleDescription = if (passwordVisible) {
+                "Ocultar contraseña"
+            } else {
+                "Mostrar contraseña"
+            }
+            IconButton(
+                onClick = onTogglePasswordVisibility,
+                modifier = Modifier.semantics { contentDescription = toggleDescription }
+            ) {
+                Text(text = if (passwordVisible) "🙈" else "👁")
             }
         },
         modifier = Modifier.fillMaxWidth()
@@ -618,8 +647,11 @@ private fun PtyTerminalCard(
                     keyboardActions = KeyboardActions(onSend = { submitCommand() }),
                     modifier = Modifier.weight(1f)
                 )
-                Button(onClick = submitCommand) {
-                    Text(text = "Enviar")
+                FilledIconButton(onClick = submitCommand) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "Enviar comando"
+                    )
                 }
             }
         }
