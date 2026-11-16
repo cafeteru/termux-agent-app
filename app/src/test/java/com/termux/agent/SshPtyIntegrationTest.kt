@@ -126,6 +126,36 @@ class SshPtyIntegrationTest {
         }
     }
 
+    @Test
+    fun sendRawAndSendRawAsyncDeliverControlAndArrowSequencesWithoutNewline() {
+        FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
+            val state = SshSessionManager.connect(
+                isTermuxInstalled = { true },
+                config = SshConfig(
+                    host = "127.0.0.1",
+                    port = server.port,
+                    username = "termux",
+                    authMethod = AuthMethod.PASSWORD,
+                    password = "secret"
+                ),
+                timeoutMs = 5_000
+            )
+            assertTrue("Expected Connected but got $state", state is ConnectionState.Connected)
+
+            awaitCondition(timeoutMs = 5_000) {
+                SshSessionManager.ptyOutput.value.contains(":~$ ")
+            }
+
+            assertTrue(SshSessionManager.sendRaw("\u0003"))
+            SshSessionManager.sendRawAsync("\u001B\t\u001B[A")
+
+            awaitCondition(timeoutMs = 5_000) {
+                server.receivedRawString().contains("\u0003\u001B\t\u001B[A")
+            }
+            assertTrue(server.receivedCommands.isEmpty())
+        }
+    }
+
     private fun awaitCondition(timeoutMs: Long, condition: () -> Boolean) {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {

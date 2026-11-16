@@ -2,6 +2,7 @@ package com.termux.agent
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -225,5 +226,21 @@ class TermuxConnectionCheckerTest {
         assertEquals("\u0004", SshSessionManager.applyModifiers("d", ctrl = true, alt = false))
         assertEquals("\u001Bf", SshSessionManager.applyModifiers("f", ctrl = false, alt = true))
         assertEquals("\u001B\u0003", SshSessionManager.applyModifiers("c", ctrl = true, alt = true))
+    }
+
+    @Test
+    fun ansiTextParserSupports256ColorTrueColorUnderlineBackgroundAndStripsOsc() {
+        val parsed = AnsiTextParser.parse(
+            "\u001B]0;title\u0007\u001B[4;38;5;196;48;2;10;20;30mERR\u001B[24;39;49m ok"
+        )
+
+        assertEquals("ERR ok", parsed.text)
+        assertEquals(1, parsed.spanStyles.size)
+        val span = parsed.spanStyles.first()
+        assertEquals(0, span.start)
+        assertEquals("ERR".length, span.end)
+        assertEquals(Color(255, 0, 0), span.item.color)
+        assertEquals(Color(10, 20, 30), span.item.background)
+        assertEquals(TextDecoration.Underline, span.item.textDecoration)
     }
 }
