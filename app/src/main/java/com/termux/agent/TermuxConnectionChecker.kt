@@ -91,6 +91,27 @@ object TermuxConnectionChecker {
         config: SshConfig,
         timeoutMs: Int = AppConfig.DEFAULT_CONNECT_TIMEOUT_MS
     ): ConnectionState {
+        validateConfig(isTermuxInstalled, config)?.let { return it }
+
+        var session: Session? = null
+        return try {
+            session = openConnectedSession(config, timeoutMs)
+            val serverBanner = session.serverVersion ?: "SSH-2.0"
+            ConnectionState.Connected(config.host, config.port, serverBanner)
+        } catch (e: Exception) {
+            mapSshError(e, config)
+        } finally {
+            session?.disconnect()
+        }
+    }
+
+    /**
+     * Validates Termux availability, port range, and required credentials for the chosen auth method.
+     */
+    internal fun validateConfig(
+        isTermuxInstalled: () -> Boolean,
+        config: SshConfig
+    ): ConnectionState.Error? {
         if (!isTermuxInstalled()) {
             return ConnectionState.Error(
                 "Termux (${AppConfig.TERMUX_PACKAGE_NAME}) no está instalado."
@@ -111,40 +132,40 @@ object TermuxConnectionChecker {
                 "No hay clave SSH configurada. Pulsa 'Regenerar clave'."
             )
         }
+        return null
+    }
 
-        var session: Session? = null
-        return try {
-            val jsch = JSch()
-            if (config.authMethod == AuthMethod.PUBLIC_KEY) {
-                jsch.addIdentity(
-                    "termux-agent-key",
-                    config.privateKeyPem.toByteArray(Charsets.UTF_8),
-                    null,
-                    null
-                )
+    /**
+     * Creates, configures, and connects an authenticated JSch SSH session.
+     */
+    internal fun openConnectedSession(
+        config: SshConfig,
+        timeoutMs: Int = AppConfig.DEFAULT_CONNECT_TIMEOUT_MS
+    ): Session {
+        val jsch = JSch()
+        if (config.authMethod == AuthMethod.PUBLIC_KEY) {
+            jsch.addIdentity(
+                "termux-agent-key",
+                config.privateKeyPem.toByteArray(Charsets.UTF_8),
+                null,
+                null
+            )
+        }
+        val username = config.username.ifBlank { AppConfig.DEFAULT_SSH_USER }
+        return jsch.getSession(username, config.host, config.port).apply {
+            if (config.authMethod == AuthMethod.PASSWORD) {
+                setPassword(config.password)
+                setConfig("PreferredAuthentications", "password,keyboard-interactive")
+                userInfo = PasswordUserInfo(config.password)
+            } else {
+                setConfig("PreferredAuthentications", "publickey")
             }
-            val username = config.username.ifBlank { AppConfig.DEFAULT_SSH_USER }
-            session = jsch.getSession(username, config.host, config.port).apply {
-                if (config.authMethod == AuthMethod.PASSWORD) {
-                    setPassword(config.password)
-                    setConfig("PreferredAuthentications", "password,keyboard-interactive")
-                    userInfo = PasswordUserInfo(config.password)
-                } else {
-                    setConfig("PreferredAuthentications", "publickey")
-                }
-                setConfig("StrictHostKeyChecking", "no")
-                connect(timeoutMs)
-            }
-            val serverBanner = session.serverVersion ?: "SSH-2.0"
-            ConnectionState.Connected(config.host, config.port, serverBanner)
-        } catch (e: Exception) {
-            mapSshError(e, config)
-        } finally {
-            session?.disconnect()
+            setConfig("StrictHostKeyChecking", "no")
+            connect(timeoutMs)
         }
     }
 
-    private fun mapSshError(e: Exception, config: SshConfig): ConnectionState.Error {
+    internal fun mapSshError(e: Exception, config: SshConfig): ConnectionState.Error {
         val causes = generateSequence<Throwable>(e) { it.cause }.toList()
         val messages = causes.mapNotNull { it.message }.joinToString(" | ")
 

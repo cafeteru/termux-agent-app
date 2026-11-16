@@ -1,5 +1,8 @@
 package com.termux.agent
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -8,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -24,8 +28,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -40,12 +44,12 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestNotificationPermissionIfNeeded()
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -53,6 +57,24 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                REQUEST_POST_NOTIFICATIONS
+            )
+        }
+    }
+
+    private companion object {
+        const val REQUEST_POST_NOTIFICATIONS = 100
     }
 }
 
@@ -63,21 +85,17 @@ fun StatusScreen() {
 
     var config by remember { mutableStateOf(SshConfigStore.load(context)) }
     var portText by remember { mutableStateOf(config.port.toString()) }
-    var activeConfig by remember { mutableStateOf(config) }
     var passwordVisible by remember { mutableStateOf(false) }
     var feedbackMessage by remember { mutableStateOf<String?>(null) }
-    var state by remember { mutableStateOf<ConnectionState>(ConnectionState.Checking) }
-    var connectTrigger by remember { mutableIntStateOf(0) }
+    var validationError by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(connectTrigger) {
-        state = ConnectionState.Checking
-        state = withContext(Dispatchers.IO) {
-            TermuxConnectionChecker.checkConnectionWithAuth(
-                isTermuxInstalled = {
-                    TermuxConnectionChecker.isTermuxInstalled(context.packageManager)
-                },
-                config = activeConfig
-            )
+    val sessionState by SshSessionManager.connectionState.collectAsState()
+    val ptyOutput by SshSessionManager.ptyOutput.collectAsState()
+    val displayedState = validationError?.let { ConnectionState.Error(it) } ?: sessionState
+
+    LaunchedEffect(Unit) {
+        if (SshSessionManager.connectionState.value !is ConnectionState.Connected) {
+            AgentForegroundService.connect(context)
         }
     }
 
@@ -114,6 +132,7 @@ fun StatusScreen() {
             onPortChange = { value ->
                 val digits = value.filter(Char::isDigit).take(5)
                 portText = digits
+                validationError = null
                 digits.toIntOrNull()?.takeIf { it in 1..65535 }?.let { validPort ->
                     config = config.copy(port = validPort)
                 }
@@ -147,30 +166,37 @@ fun StatusScreen() {
             }
         )
 
-        ConnectionStatusBanner(state = state)
+        ConnectionStatusBanner(state = displayedState)
 
         Button(
             onClick = {
                 val parsedPort = portText.trim().toIntOrNull()
                 if (parsedPort == null || parsedPort !in 1..65535) {
-                    state = ConnectionState.Error(
-                        "Puerto SSH inválido. Introduce un valor entre 1 y 65535."
-                    )
+                    validationError = "Puerto SSH inválido. Introduce un valor entre 1 y 65535."
                     return@Button
                 }
+                validationError = null
                 val normalized = config.copy(
                     port = parsedPort,
                     username = config.username.trim().ifBlank { AppConfig.DEFAULT_SSH_USER }
                 )
                 config = normalized
                 SshConfigStore.save(context, normalized)
-                activeConfig = normalized
-                connectTrigger++
+                AgentForegroundService.connect(context)
             },
-            enabled = state !is ConnectionState.Checking,
+            enabled = sessionState !is ConnectionState.Checking,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(text = "Guardar y Conectar")
+        }
+
+        if (displayedState is ConnectionState.Connected) {
+            PtyTerminalCard(
+                ptyOutput = ptyOutput,
+                onSendCommand = { command ->
+                    AgentForegroundService.sendCommand(context, command)
+                }
+            )
         }
     }
 }
@@ -372,5 +398,74 @@ private fun ConnectionStatusBanner(state: ConnectionState) {
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center
         )
+    }
+}
+
+@Composable
+private fun PtyTerminalCard(
+    ptyOutput: String,
+    onSendCommand: (String) -> Unit
+) {
+    var commandText by remember { mutableStateOf("") }
+    val outputScrollState = rememberScrollState()
+
+    LaunchedEffect(ptyOutput) {
+        outputScrollState.animateScrollTo(outputScrollState.maxValue)
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "Consola PTY SSH",
+                style = MaterialTheme.typography.titleMedium
+            )
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 140.dp, max = 260.dp),
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Text(
+                    text = ptyOutput.ifBlank { "(esperando salida de Termux...)" },
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(outputScrollState)
+                        .padding(10.dp)
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = commandText,
+                    onValueChange = { commandText = it },
+                    label = { Text("Comando") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                Button(
+                    onClick = {
+                        onSendCommand(commandText)
+                        commandText = ""
+                    }
+                ) {
+                    Text(text = "Enviar")
+                }
+            }
+        }
     }
 }

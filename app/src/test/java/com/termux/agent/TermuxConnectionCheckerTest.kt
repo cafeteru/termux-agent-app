@@ -138,4 +138,42 @@ class TermuxConnectionCheckerTest {
         val reason = (state as ConnectionState.Error).reason
         assertTrue(reason.contains("clave"))
     }
+
+    @Test
+    fun appendBoundedOutputNormalizesCarriageReturnsAndTruncatesToMaxChars() {
+        val result = SshSessionManager.appendBoundedOutput(
+            current = "abc\n",
+            chunk = "123\r\n456\r\n",
+            maxChars = 8
+        )
+
+        assertEquals("123\n456\n", result)
+    }
+
+    @Test
+    fun sshSessionManagerConnectUpdatesStateWithErrorWhenTermuxMissing() {
+        val result = SshSessionManager.connect(
+            isTermuxInstalled = { false },
+            config = SshConfig()
+        )
+
+        assertTrue(result is ConnectionState.Error)
+        assertEquals(result, SshSessionManager.connectionState.value)
+        assertTrue((result as ConnectionState.Error).reason.contains("com.termux"))
+    }
+
+    @Test
+    fun sshSessionManagerConnectUpdatesStateWithErrorWhenPasswordBlank() {
+        val result = SshSessionManager.connect(
+            isTermuxInstalled = { true },
+            config = SshConfig(
+                authMethod = AuthMethod.PASSWORD,
+                password = "  "
+            )
+        )
+
+        assertTrue(result is ConnectionState.Error)
+        assertEquals(result, SshSessionManager.connectionState.value)
+        assertTrue((result as ConnectionState.Error).reason.contains("contraseña"))
+    }
 }
