@@ -60,6 +60,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -69,6 +70,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -86,10 +88,12 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -621,7 +625,14 @@ private fun PtyTerminalCard(
     onSendRaw: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var commandText by rememberSaveable { mutableStateOf("") }
+    var commandValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(""))
+    }
+    val commandHistory = rememberSaveable { mutableStateListOf<String>() }
+    var historyIndex by rememberSaveable { mutableStateOf(-1) }
+    var draftCommand by rememberSaveable { mutableStateOf("") }
+    var isCommandFocused by remember { mutableStateOf(false) }
+
     var ctrlArmed by rememberSaveable { mutableStateOf(false) }
     var altArmed by rememberSaveable { mutableStateOf(false) }
     val outputScrollState = rememberScrollState()
@@ -629,14 +640,123 @@ private fun PtyTerminalCard(
     val commandFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     val terminalInteractionSource = remember { MutableInteractionSource() }
+
     val focusCommandField = {
         commandFocusRequester.requestFocus()
         keyboardController?.show()
+        isCommandFocused = true
         Unit
     }
+
     val submitCommand = {
-        onSendCommand(commandText)
-        commandText = ""
+        val text = commandValue.text
+        onSendCommand(text)
+        if (text.isNotBlank()) {
+            if (commandHistory.isEmpty() || commandHistory.last() != text) {
+                commandHistory.add(text)
+            }
+        }
+        historyIndex = -1
+        draftCommand = ""
+        commandValue = TextFieldValue("")
+    }
+
+    val navigateHistoryUp = {
+        if (commandHistory.isNotEmpty()) {
+            if (historyIndex == -1) {
+                draftCommand = commandValue.text
+                historyIndex = commandHistory.size - 1
+            } else if (historyIndex > 0) {
+                historyIndex--
+            }
+            val historical = commandHistory[historyIndex]
+            commandValue = TextFieldValue(historical, selection = TextRange(historical.length))
+        } else {
+            onSendRaw(SshSessionManager.applyModifiers("\u001B[A", ctrl = false, alt = altArmed))
+            ctrlArmed = false
+            altArmed = false
+        }
+        focusCommandField()
+    }
+
+    val navigateHistoryDown = {
+        if (historyIndex != -1) {
+            if (historyIndex < commandHistory.size - 1) {
+                historyIndex++
+                val historical = commandHistory[historyIndex]
+                commandValue = TextFieldValue(historical, selection = TextRange(historical.length))
+            } else {
+                historyIndex = -1
+                commandValue = TextFieldValue(draftCommand, selection = TextRange(draftCommand.length))
+            }
+        } else {
+            onSendRaw(SshSessionManager.applyModifiers("\u001B[B", ctrl = false, alt = altArmed))
+            ctrlArmed = false
+            altArmed = false
+        }
+        focusCommandField()
+    }
+
+    val handleAutocomplete = {
+        val text = commandValue.text
+        if (text.isNotEmpty()) {
+            val matches = commandHistory.filter { it.startsWith(text, ignoreCase = true) && it != text }
+            if (matches.isNotEmpty()) {
+                val currentIndex = matches.indexOf(text)
+                val nextIndex = (currentIndex + 1) % matches.size
+                val completed = matches[nextIndex]
+                commandValue = TextFieldValue(completed, selection = TextRange(completed.length))
+            } else {
+                val lastSpace = text.lastIndexOf(' ')
+                if (lastSpace >= 0) {
+                    val prefix = text.substring(0, lastSpace + 1)
+                    val lastWord = text.substring(lastSpace + 1)
+                    if (lastWord.isNotEmpty()) {
+                        val tokenMatches = commandHistory
+                            .flatMap { it.split(' ') }
+                            .filter { it.startsWith(lastWord, ignoreCase = true) && it != lastWord }
+                            .distinct()
+                        if (tokenMatches.isNotEmpty()) {
+                            val completed = prefix + tokenMatches.first()
+                            commandValue = TextFieldValue(completed, selection = TextRange(completed.length))
+                        } else {
+                            onSendRaw("\t")
+                        }
+                    } else {
+                        onSendRaw("\t")
+                    }
+                } else {
+                    onSendRaw("\t")
+                }
+            }
+        } else {
+            onSendRaw("\t")
+        }
+        focusCommandField()
+    }
+
+    val handleMoveLeft = {
+        if (commandValue.text.isNotEmpty()) {
+            val newPos = maxOf(0, commandValue.selection.start - 1)
+            commandValue = commandValue.copy(selection = TextRange(newPos))
+        } else {
+            onSendRaw(SshSessionManager.applyModifiers("\u001B[D", ctrl = false, alt = altArmed))
+            ctrlArmed = false
+            altArmed = false
+        }
+        focusCommandField()
+    }
+
+    val handleMoveRight = {
+        if (commandValue.text.isNotEmpty()) {
+            val newPos = minOf(commandValue.text.length, commandValue.selection.end + 1)
+            commandValue = commandValue.copy(selection = TextRange(newPos))
+        } else {
+            onSendRaw(SshSessionManager.applyModifiers("\u001B[C", ctrl = false, alt = altArmed))
+            ctrlArmed = false
+            altArmed = false
+        }
+        focusCommandField()
     }
 
     LaunchedEffect(ptyOutput, outputScrollState.maxValue) {
@@ -688,12 +808,17 @@ private fun PtyTerminalCard(
                 altArmed = !altArmed
                 focusCommandField()
             },
-            onSendSequence = { sequence ->
-                onSendRaw(SshSessionManager.applyModifiers(sequence, ctrl = false, alt = altArmed))
+            onEsc = {
+                onSendRaw(SshSessionManager.applyModifiers("\u001B", ctrl = false, alt = altArmed))
                 ctrlArmed = false
                 altArmed = false
                 focusCommandField()
             },
+            onTab = handleAutocomplete,
+            onArrowLeft = handleMoveLeft,
+            onArrowDown = navigateHistoryDown,
+            onArrowUp = navigateHistoryUp,
+            onArrowRight = handleMoveRight,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 6.dp)
@@ -706,18 +831,20 @@ private fun PtyTerminalCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedTextField(
-                value = commandText,
+                value = commandValue,
                 onValueChange = { updated ->
-                    if ((ctrlArmed || altArmed) && updated.length > commandText.length) {
-                        val ch = updated.last().toString()
+                    if ((ctrlArmed || altArmed) && updated.text.length > commandValue.text.length) {
+                        val ch = updated.text.last().toString()
                         onSendRaw(SshSessionManager.applyModifiers(ch, ctrl = ctrlArmed, alt = altArmed))
                         ctrlArmed = false
                         altArmed = false
-                    } else if (updated.contains('\n') || updated.contains('\r')) {
-                        commandText = updated.replace("\r", "").replace("\n", "")
+                    } else if (updated.text.contains('\n') || updated.text.contains('\r')) {
+                        commandValue = updated.copy(
+                            text = updated.text.replace("\r", "").replace("\n", "")
+                        )
                         submitCommand()
                     } else {
-                        commandText = updated
+                        commandValue = updated
                     }
                 },
                 label = { Text("Comando") },
@@ -731,12 +858,28 @@ private fun PtyTerminalCard(
                 modifier = Modifier
                     .weight(1f)
                     .focusRequester(commandFocusRequester)
+                    .onFocusChanged { isCommandFocused = it.isFocused }
                     .onPreviewKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyDown &&
-                            (event.key == Key.Enter || event.key == Key.NumPadEnter)
-                        ) {
-                            submitCommand()
-                            true
+                        if (event.type == KeyEventType.KeyDown) {
+                            when (event.key) {
+                                Key.Enter, Key.NumPadEnter -> {
+                                    submitCommand()
+                                    true
+                                }
+                                Key.DirectionUp -> {
+                                    navigateHistoryUp()
+                                    true
+                                }
+                                Key.DirectionDown -> {
+                                    navigateHistoryDown()
+                                    true
+                                }
+                                Key.Tab -> {
+                                    handleAutocomplete()
+                                    true
+                                }
+                                else -> false
+                            }
                         } else {
                             false
                         }
@@ -758,7 +901,12 @@ private fun ExtraKeysRow(
     altArmed: Boolean,
     onToggleCtrl: () -> Unit,
     onToggleAlt: () -> Unit,
-    onSendSequence: (String) -> Unit,
+    onEsc: () -> Unit,
+    onTab: () -> Unit,
+    onArrowLeft: () -> Unit,
+    onArrowDown: () -> Unit,
+    onArrowUp: () -> Unit,
+    onArrowRight: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -767,13 +915,13 @@ private fun ExtraKeysRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         ExtraKeyButton(
-            onClick = { onSendSequence("\u001B") },
+            onClick = onEsc,
             modifier = Modifier.weight(1f)
         ) {
             Text(text = "ESC", style = MaterialTheme.typography.labelSmall, maxLines = 1)
         }
         ExtraKeyButton(
-            onClick = { onSendSequence("\t") },
+            onClick = onTab,
             modifier = Modifier.weight(1f)
         ) {
             Text(text = "TAB", style = MaterialTheme.typography.labelSmall, maxLines = 1)
@@ -793,7 +941,7 @@ private fun ExtraKeysRow(
             Text(text = "ALT", style = MaterialTheme.typography.labelSmall, maxLines = 1)
         }
         ExtraKeyButton(
-            onClick = { onSendSequence("\u001B[D") },
+            onClick = onArrowLeft,
             modifier = Modifier.weight(1f)
         ) {
             Icon(
@@ -802,7 +950,7 @@ private fun ExtraKeysRow(
             )
         }
         ExtraKeyButton(
-            onClick = { onSendSequence("\u001B[B") },
+            onClick = onArrowDown,
             modifier = Modifier.weight(1f)
         ) {
             Icon(
@@ -811,7 +959,7 @@ private fun ExtraKeysRow(
             )
         }
         ExtraKeyButton(
-            onClick = { onSendSequence("\u001B[A") },
+            onClick = onArrowUp,
             modifier = Modifier.weight(1f)
         ) {
             Icon(
@@ -820,7 +968,7 @@ private fun ExtraKeysRow(
             )
         }
         ExtraKeyButton(
-            onClick = { onSendSequence("\u001B[C") },
+            onClick = onArrowRight,
             modifier = Modifier.weight(1f)
         ) {
             Icon(
