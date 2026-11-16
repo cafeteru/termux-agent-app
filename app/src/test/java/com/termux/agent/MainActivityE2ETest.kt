@@ -11,7 +11,9 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
@@ -29,9 +31,13 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.ConscryptMode
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h915dp")
+@ConscryptMode(ConscryptMode.Mode.OFF)
+@GraphicsMode(GraphicsMode.Mode.LEGACY)
 class MainActivityE2ETest {
 
     @get:Rule
@@ -166,25 +172,23 @@ class MainActivityE2ETest {
             drainStartedServices()
 
             composeRule.onNodeWithContentDescription("Abrir configuración SSH").performClick()
+            // Robolectric LEGACY graphics routes touches inside the open drawer to its scrim, closing it;
+            // drive drawer controls via semantics actions (NATIVE mode is unsupported on aarch64 Termux).
             composeRule.waitForIdle()
-            composeRule.onNodeWithContentDescription("Mostrar contraseña")
-                .performScrollTo()
-                .performClick()
-            composeRule.onNodeWithContentDescription("Ocultar contraseña")
-                .performScrollTo()
-                .assertIsDisplayed()
+            composeRule.onNodeWithContentDescription("Mostrar contraseña").performSemanticsAction(SemanticsActions.OnClick)
+            composeRule.onNodeWithContentDescription("Ocultar contraseña").assertIsDisplayed()
 
             composeRule.onNodeWithText("Puerto").performScrollTo().performTextClearance()
             composeRule.onNodeWithText("Puerto").performTextInput("0")
-            composeRule.onNodeWithText("Guardar y Conectar").performScrollTo().performClick()
+            composeRule.onNodeWithText("Guardar y Conectar").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
             composeRule.onNodeWithText(
                 "Puerto SSH inválido. Introduce un valor entre 1 y 65535."
             ).performScrollTo().assertIsDisplayed()
 
             composeRule.onNodeWithText("Puerto").performScrollTo().performTextClearance()
             composeRule.onNodeWithText("Puerto").performTextInput("8022")
-            composeRule.onNodeWithText("Clave SSH (key)").performScrollTo().performClick()
-            composeRule.onNodeWithText("Regenerar clave").performScrollTo().performClick()
+            composeRule.onNodeWithText("Clave SSH (key)").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+            composeRule.onNodeWithText("Regenerar clave").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
             composeRule.onNodeWithText(
                 "Nueva clave SSH generada. Copia el comando en Termux."
             ).performScrollTo().assertIsDisplayed()
