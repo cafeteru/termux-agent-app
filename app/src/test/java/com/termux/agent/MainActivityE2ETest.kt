@@ -10,6 +10,7 @@ import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.performClick
@@ -95,8 +96,8 @@ class MainActivityE2ETest {
                 }
                 composeRule.onNodeWithText("Termux conectado", substring = true).assertDoesNotExist()
 
-                composeRule.onNodeWithText("Comando").performClick()
-                composeRule.onNodeWithText("Comando").performTextInput("whoami")
+                composeRule.onNodeWithText("Búfer").performClick()
+                composeRule.onNodeWithTag("command_input_field").performTextInput("whoami")
                 composeRule.onNodeWithContentDescription("Enviar comando").performClick()
 
                 composeRule.waitUntil(timeoutMillis = 5_000) {
@@ -143,9 +144,9 @@ class MainActivityE2ETest {
                         .isNotEmpty()
                 }
 
-                composeRule.onNodeWithText("Comando").performClick()
+                composeRule.onNodeWithText("Búfer").performClick()
                 composeRule.onNodeWithText("termux@local:~$ ", substring = true).performClick()
-                composeRule.onNodeWithText("Comando").assertIsFocused()
+                composeRule.onNodeWithTag("command_input_field").assertIsFocused()
 
                 composeRule.onNodeWithText("ESC").performClick()
                 composeRule.onNodeWithText("TAB").performClick()
@@ -155,10 +156,10 @@ class MainActivityE2ETest {
                 composeRule.onNodeWithContentDescription("Flecha derecha").performClick()
 
                 composeRule.onNodeWithText("CTRL").performClick()
-                composeRule.onNodeWithText("Comando").performTextInput("c")
+                composeRule.onNodeWithTag("command_input_field").performTextInput("c")
 
                 composeRule.onNodeWithText("ALT").performClick()
-                composeRule.onNodeWithText("Comando").performTextInput("f")
+                composeRule.onNodeWithTag("command_input_field").performTextInput("f")
 
                 composeRule.waitUntil(timeoutMillis = 5_000) {
                     server.receivedRawString()
@@ -186,7 +187,7 @@ class MainActivityE2ETest {
                 // Direct mode is default
                 composeRule.onNodeWithText("Modo interactivo (en vivo)").assertIsDisplayed()
 
-                composeRule.onNodeWithText("Teclado directo (escribe en vivo a Termux)...").performTextInput("ls")
+                composeRule.onNodeWithTag("interactive_terminal_input").performTextInput("ls")
                 composeRule.onNodeWithText("TAB").performClick()
                 composeRule.onNodeWithContentDescription("Flecha arriba").performClick()
                 composeRule.onNodeWithContentDescription("Flecha abajo").performClick()
@@ -195,7 +196,7 @@ class MainActivityE2ETest {
                     server.receivedRawString().contains("ls\t\u001B[A\u001B[B")
                 }
 
-                composeRule.onNodeWithText("Comando").performClick()
+                composeRule.onNodeWithText("Búfer").performClick()
                 composeRule.onNodeWithText("Modo búfer (comando)").assertIsDisplayed()
             }
         }
@@ -246,12 +247,12 @@ class MainActivityE2ETest {
                 composeRule.onNodeWithText("Modo interactivo (en vivo)").assertIsDisplayed()
 
                 composeRule.onNodeWithText("CTRL").performClick()
-                composeRule.onNodeWithText("Teclado directo (escribe en vivo a Termux)...").performTextInput("c")
+                composeRule.onNodeWithTag("interactive_terminal_input").performTextInput("c")
 
                 composeRule.onNodeWithText("ALT").performClick()
-                composeRule.onNodeWithText("Teclado directo (escribe en vivo a Termux)...").performTextInput("b")
+                composeRule.onNodeWithTag("interactive_terminal_input").performTextInput("b")
 
-                composeRule.onNodeWithText("Teclado directo (escribe en vivo a Termux)...").performTextInput("\n")
+                composeRule.onNodeWithTag("interactive_terminal_input").performTextInput("\n")
 
                 composeRule.waitUntil(timeoutMillis = 5_000) {
                     server.receivedRawString().contains("\u0003\u001Bb\r")

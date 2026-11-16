@@ -85,6 +85,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
@@ -828,7 +829,7 @@ private fun PtyTerminalCard(
                 FilterChip(
                     selected = !isInteractiveMode,
                     onClick = { isInteractiveMode = false },
-                    label = { Text("Comando", style = MaterialTheme.typography.labelSmall) }
+                    label = { Text("Búfer", style = MaterialTheme.typography.labelSmall) }
                 )
             }
         }
@@ -990,6 +991,7 @@ private fun PtyTerminalCard(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
+                        .testTag("interactive_terminal_input")
                         .focusRequester(interactiveFocusRequester)
                         .onFocusChanged { isInteractiveFocused = it.isFocused }
                         .onPreviewKeyEvent { event ->
@@ -1138,6 +1140,7 @@ private fun PtyTerminalCard(
                     ),
                     modifier = Modifier
                         .weight(1f)
+                        .testTag("command_input_field")
                         .focusRequester(commandFocusRequester)
                         .onFocusChanged { isCommandFocused = it.isFocused }
                         .onPreviewKeyEvent { event ->
