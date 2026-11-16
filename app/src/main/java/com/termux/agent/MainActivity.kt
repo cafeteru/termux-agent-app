@@ -625,12 +625,10 @@ private fun PtyTerminalCard(
     onSendRaw: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var commandValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue(""))
-    }
-    val commandHistory = rememberSaveable { mutableStateListOf<String>() }
-    var historyIndex by rememberSaveable { mutableStateOf(-1) }
-    var draftCommand by rememberSaveable { mutableStateOf("") }
+    var commandValue by remember { mutableStateOf(TextFieldValue("")) }
+    val commandHistory = remember { mutableStateListOf<String>() }
+    var historyIndex by remember { mutableStateOf(-1) }
+    var draftCommand by remember { mutableStateOf("") }
     var isCommandFocused by remember { mutableStateOf(false) }
 
     var ctrlArmed by rememberSaveable { mutableStateOf(false) }
