@@ -319,4 +319,32 @@ class TerminalBuffer(private val maxLines: Int = 1_000) {
         cursorCol = 0
         currentSgr = ""
     }
+
+    @Synchronized
+    fun getCurrentLineText(): String {
+        val row = cursorRow.coerceIn(0, lines.size - 1)
+        val line = lines[row]
+        val sb = StringBuilder()
+        for (cell in line) {
+            sb.append(cell.char)
+        }
+        return sb.toString()
+    }
+
+    companion object {
+        /**
+         * Extracts the active user command following a standard shell prompt ($ , # , % , ❯ , > ).
+         * Returns null if the line does not appear to be a shell prompt line.
+         */
+        fun extractCommandFromLine(line: String): String? {
+            val promptMarkers = listOf("$ ", "# ", "% ", "❯ ", "> ")
+            for (marker in promptMarkers) {
+                val idx = line.indexOf(marker)
+                if (idx >= 0) {
+                    return line.substring(idx + marker.length)
+                }
+            }
+            return null
+        }
+    }
 }

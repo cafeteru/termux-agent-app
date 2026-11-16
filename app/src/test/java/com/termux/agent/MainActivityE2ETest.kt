@@ -10,6 +10,7 @@ import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.performClick
@@ -95,7 +96,8 @@ class MainActivityE2ETest {
                 }
                 composeRule.onNodeWithText("Termux conectado", substring = true).assertDoesNotExist()
 
-                composeRule.onNodeWithText("Comando").performTextInput("whoami")
+                composeRule.onNodeWithText("Búfer").performClick()
+                composeRule.onNodeWithTag("command_input_field").performTextInput("whoami")
                 composeRule.onNodeWithContentDescription("Enviar comando").performClick()
 
                 composeRule.waitUntil(timeoutMillis = 5_000) {
@@ -142,8 +144,9 @@ class MainActivityE2ETest {
                         .isNotEmpty()
                 }
 
+                composeRule.onNodeWithText("Búfer").performClick()
                 composeRule.onNodeWithText("termux@local:~$ ", substring = true).performClick()
-                composeRule.onNodeWithText("Comando").assertIsFocused()
+                composeRule.onNodeWithTag("command_input_field").assertIsFocused()
 
                 composeRule.onNodeWithText("ESC").performClick()
                 composeRule.onNodeWithText("TAB").performClick()
@@ -153,14 +156,106 @@ class MainActivityE2ETest {
                 composeRule.onNodeWithContentDescription("Flecha derecha").performClick()
 
                 composeRule.onNodeWithText("CTRL").performClick()
-                composeRule.onNodeWithText("Comando").performTextInput("c")
+                composeRule.onNodeWithTag("command_input_field").performTextInput("c")
 
                 composeRule.onNodeWithText("ALT").performClick()
-                composeRule.onNodeWithText("Comando").performTextInput("f")
+                composeRule.onNodeWithTag("command_input_field").performTextInput("f")
 
                 composeRule.waitUntil(timeoutMillis = 5_000) {
                     server.receivedRawString()
                         .contains("\u001B\t\u001B[D\u001B[B\u001B[A\u001B[C\u0003\u001Bf")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun interactiveTerminalModeStreamsKeystrokesDirectlyToPty() {
+        FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
+            ActivityScenario.launch(MainActivity::class.java).use {
+                drainStartedServices()
+
+                val connectState = connectTestServer(server.port)
+                assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
+
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    composeRule.onAllNodesWithText("termux@local:~$ ", substring = true)
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
+                }
+
+                // Direct mode is default
+                composeRule.onNodeWithText("Modo interactivo (en vivo)").assertIsDisplayed()
+
+                composeRule.onNodeWithTag("interactive_terminal_input").performTextInput("ls")
+                composeRule.onNodeWithText("TAB").performClick()
+                composeRule.onNodeWithContentDescription("Flecha arriba").performClick()
+                composeRule.onNodeWithContentDescription("Flecha abajo").performClick()
+
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    server.receivedRawString().contains("ls\t\u001B[A\u001B[B")
+                }
+
+                composeRule.onNodeWithText("Búfer").performClick()
+                composeRule.onNodeWithText("Modo búfer (comando)").assertIsDisplayed()
+            }
+        }
+    }
+
+    @Test
+    fun terminalCommandUpdateSyncsToInputField() {
+        FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
+            ActivityScenario.launch(MainActivity::class.java).use {
+                drainStartedServices()
+
+                val connectState = connectTestServer(server.port)
+                assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
+
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    composeRule.onAllNodesWithText("termux@local:~$ ", substring = true)
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
+                }
+
+                // Simulate terminal tab completion or history updating the active line
+                server.sendOutput("\rtermux@local:~$ cd Download/\u001B[K")
+
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    composeRule.onAllNodesWithText("cd Download/")
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun directModeModifiersAndEnterSubmission() {
+        FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
+            ActivityScenario.launch(MainActivity::class.java).use {
+                drainStartedServices()
+
+                val connectState = connectTestServer(server.port)
+                assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
+
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    composeRule.onAllNodesWithText("termux@local:~$ ", substring = true)
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
+                }
+
+                composeRule.onNodeWithText("Modo interactivo (en vivo)").assertIsDisplayed()
+
+                composeRule.onNodeWithText("CTRL").performClick()
+                composeRule.onNodeWithTag("interactive_terminal_input").performTextInput("c")
+
+                composeRule.onNodeWithText("ALT").performClick()
+                composeRule.onNodeWithTag("interactive_terminal_input").performTextInput("b")
+
+                composeRule.onNodeWithTag("interactive_terminal_input").performTextInput("\n")
+
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    server.receivedRawString().contains("\u0003\u001Bb\r")
                 }
             }
         }

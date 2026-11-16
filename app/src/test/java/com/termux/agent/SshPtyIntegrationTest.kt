@@ -156,6 +156,38 @@ class SshPtyIntegrationTest {
         }
     }
 
+    @Test
+    fun currentCommandLineUpdatesFromPtyStreamAndClearsOnDisconnect() {
+        FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
+            val state = SshSessionManager.connect(
+                isTermuxInstalled = { true },
+                config = SshConfig(
+                    host = "127.0.0.1",
+                    port = server.port,
+                    username = "termux",
+                    authMethod = AuthMethod.PASSWORD,
+                    password = "secret"
+                ),
+                timeoutMs = 5_000
+            )
+            assertTrue("Expected Connected but got $state", state is ConnectionState.Connected)
+
+            awaitCondition(timeoutMs = 5_000) {
+                SshSessionManager.ptyOutput.value.contains(":~$ ")
+            }
+            assertEquals("", SshSessionManager.currentCommandLine.value)
+
+            server.sendOutput("\rtermux@local:~$ cd Download/\u001B[K")
+            awaitCondition(timeoutMs = 5_000) {
+                SshSessionManager.currentCommandLine.value == "cd Download/"
+            }
+            assertEquals("cd Download/", SshSessionManager.currentCommandLine.value)
+
+            SshSessionManager.disconnect()
+            assertEquals("", SshSessionManager.currentCommandLine.value)
+        }
+    }
+
     private fun awaitCondition(timeoutMs: Long, condition: () -> Boolean) {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
