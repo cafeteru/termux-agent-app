@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -26,7 +27,7 @@ import kotlin.concurrent.thread
 class AgentForegroundService : Service() {
     private val executor = Executors.newSingleThreadExecutor()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var isObservingState = false
+    private var observerJob: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -36,10 +37,21 @@ class AgentForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_DISCONNECT) {
+            observerJob?.cancel()
+            observerJob = null
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
+            executor.execute {
+                SshSessionManager.disconnect()
+                stopSelfResult(startId)
+            }
+            return START_NOT_STICKY
+        }
+
         startForegroundWithState(SshSessionManager.connectionState.value)
-        if (!isObservingState) {
-            isObservingState = true
-            serviceScope.launch {
+        if (observerJob?.isActive != true) {
+            observerJob = serviceScope.launch {
                 SshSessionManager.connectionState.collect { state ->
                     updateNotification(state)
                 }
@@ -62,13 +74,6 @@ class AgentForegroundService : Service() {
                 val command = intent.getStringExtra(EXTRA_COMMAND) ?: return START_NOT_STICKY
                 executor.execute {
                     SshSessionManager.sendCommand(command)
-                }
-            }
-            ACTION_DISCONNECT -> {
-                executor.execute {
-                    SshSessionManager.disconnect()
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
                 }
             }
         }
@@ -117,6 +122,7 @@ class AgentForegroundService : Service() {
             ConnectionState.Checking -> "Conectando por SSH a Termux..."
             is ConnectionState.Connected -> "Conectado (${state.host}:${state.port})"
             is ConnectionState.Error -> "Error: ${state.reason}"
+            ConnectionState.Disconnected -> "Desconectado de Termux"
         }
         val openAppIntent = PendingIntent.getActivity(
             this,
@@ -126,12 +132,21 @@ class AgentForegroundService : Service() {
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val disconnectIntent = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, AgentForegroundService::class.java).apply {
+                action = ACTION_DISCONNECT
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("Termux Agent")
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(openAppIntent)
+            .addAction(0, "Desconectar", disconnectIntent)
             .setOngoing(true)
             .build()
     }

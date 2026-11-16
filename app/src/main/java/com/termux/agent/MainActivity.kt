@@ -112,7 +112,7 @@ fun StatusScreen(modifier: Modifier = Modifier) {
     val ptyOutput by SshSessionManager.ptyOutput.collectAsState()
 
     LaunchedEffect(Unit) {
-        if (SshSessionManager.connectionState.value !is ConnectionState.Connected) {
+        if (SshSessionManager.consumeInitialAutoConnect()) {
             AgentForegroundService.connect(context)
         }
     }
@@ -227,6 +227,18 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                     ) {
                         Text(text = "Guardar y Conectar")
                     }
+
+                    if (sessionState !is ConnectionState.Disconnected) {
+                        OutlinedButton(
+                            onClick = {
+                                AgentForegroundService.disconnect(context)
+                                scope.launch { drawerState.close() }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(text = "Desconectar")
+                        }
+                    }
                 }
             }
         }
@@ -259,6 +271,16 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                if (sessionState !is ConnectionState.Disconnected) {
+                    TextButton(
+                        onClick = { AgentForegroundService.disconnect(context) }
+                    ) {
+                        Text(
+                            text = "Desconectar",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
             }
 
             HorizontalDivider()
@@ -273,7 +295,7 @@ fun StatusScreen(modifier: Modifier = Modifier) {
             ) {
                 ConnectionStatusBanner(state = sessionState)
 
-                if (sessionState is ConnectionState.Error) {
+                if (sessionState is ConnectionState.Error || sessionState is ConnectionState.Disconnected) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -288,7 +310,13 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                             onClick = { AgentForegroundService.connect(context) },
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text(text = "Reintentar")
+                            Text(
+                                text = if (sessionState is ConnectionState.Disconnected) {
+                                    "Conectar"
+                                } else {
+                                    "Reintentar"
+                                }
+                            )
                         }
                     }
                 }
@@ -499,6 +527,9 @@ private fun ConnectionStatusBanner(
         }
         is ConnectionState.Error -> {
             "Error detectado: ${state.reason}" to MaterialTheme.colorScheme.error
+        }
+        ConnectionState.Disconnected -> {
+            "Sesión SSH desconectada." to MaterialTheme.colorScheme.onSurfaceVariant
         }
     }
     Text(

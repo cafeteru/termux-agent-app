@@ -37,7 +37,7 @@ class SshPtySession {
         config: SshConfig,
         timeoutMs: Int = AppConfig.DEFAULT_CONNECT_TIMEOUT_MS
     ): ConnectionState {
-        disconnect()
+        disconnect(updateState = false)
 
         val currentGeneration = synchronized(lock) { ++sessionGeneration }
         _ptyOutput.value = ""
@@ -82,7 +82,7 @@ class SshPtySession {
         } catch (e: Exception) {
             runCatching { openedChannel?.disconnect() }
             runCatching { openedSession?.disconnect() }
-            disconnect()
+            disconnect(updateState = false)
             val error = TermuxConnectionChecker.mapSshError(e, config)
             _connectionState.value = error
             error
@@ -109,12 +109,16 @@ class SshPtySession {
     /**
      * Closes the active PTY streams, shell channel, and SSH session.
      */
-    fun disconnect() {
+    fun disconnect(updateState: Boolean = true) {
         val resources = synchronized(lock) {
             sessionGeneration++
             clearSessionRefsLocked()
         }
         closeResources(resources)
+        if (updateState) {
+            _ptyOutput.value = ""
+            _connectionState.value = ConnectionState.Disconnected
+        }
     }
 
     private fun readPtyLoop(stream: InputStream, generation: Long) {
@@ -184,9 +188,20 @@ object SshSessionManager {
     const val MAX_OUTPUT_CHARS = 8_192
 
     private val activeSession = SshPtySession()
+    private val autoConnectLock = Any()
+    private var initialAutoConnectConsumed = false
 
     val connectionState: StateFlow<ConnectionState> = activeSession.connectionState
     val ptyOutput: StateFlow<String> = activeSession.ptyOutput
+
+    /**
+     * Returns true once per process so the UI only auto-connects on cold start.
+     */
+    fun consumeInitialAutoConnect(): Boolean = synchronized(autoConnectLock) {
+        if (initialAutoConnectConsumed) return false
+        initialAutoConnectConsumed = true
+        true
+    }
 
     /**
      * Normalizes carriage returns and appends a chunk while bounding output to [maxChars].
@@ -210,5 +225,5 @@ object SshSessionManager {
 
     fun sendCommand(command: String): Boolean = activeSession.sendCommand(command)
 
-    fun disconnect() = activeSession.disconnect()
+    fun disconnect() = activeSession.disconnect(updateState = true)
 }

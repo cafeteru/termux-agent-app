@@ -184,4 +184,17 @@ class TermuxConnectionCheckerTest {
 
         assertFalse(SshSessionManager.sendCommand("pwd"))
     }
+
+    @Test
+    fun sshSessionManagerDisconnectSetsDisconnectedState() {
+        SshSessionManager.connect(
+            isTermuxInstalled = { false },
+            config = SshConfig()
+        )
+
+        SshSessionManager.disconnect()
+
+        assertEquals(ConnectionState.Disconnected, SshSessionManager.connectionState.value)
+        assertEquals("", SshSessionManager.ptyOutput.value)
+    }
 }

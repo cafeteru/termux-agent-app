@@ -14,6 +14,7 @@ sealed interface ConnectionState {
     data object Checking : ConnectionState
     data class Connected(val host: String, val port: Int, val serverBanner: String) : ConnectionState
     data class Error(val reason: String) : ConnectionState
+    data object Disconnected : ConnectionState
 }
 
 object TermuxConnectionChecker {
