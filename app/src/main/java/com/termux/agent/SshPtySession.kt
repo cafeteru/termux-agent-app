@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
 /**
@@ -15,6 +16,9 @@ import kotlin.concurrent.thread
  */
 class SshPtySession {
     private val lock = Any()
+    private val writeExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "termux-ssh-pty-writer").apply { isDaemon = true }
+    }
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Checking)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -104,6 +108,13 @@ class SshPtySession {
         } catch (_: Exception) {
             false
         }
+    }
+
+    /**
+     * Enqueues a command write on a daemon writer thread without blocking UI callers.
+     */
+    fun sendCommandAsync(command: String) {
+        writeExecutor.execute { sendCommand(command) }
     }
 
     /**
@@ -230,6 +241,8 @@ object SshSessionManager {
     ): ConnectionState = activeSession.connect(isTermuxInstalled, config, timeoutMs)
 
     fun sendCommand(command: String): Boolean = activeSession.sendCommand(command)
+
+    fun sendCommandAsync(command: String) = activeSession.sendCommandAsync(command)
 
     fun disconnect() = activeSession.disconnect(updateState = true)
 }

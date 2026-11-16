@@ -172,14 +172,11 @@ class AgentForegroundService : Service() {
         }
 
         /**
-         * Dispatches a shell command line to the active PTY session inside the foreground service.
+         * Dispatches a shell command line to the active PTY session without blocking the UI thread.
          */
+        @Suppress("UNUSED_PARAMETER")
         fun sendCommand(context: Context, command: String) {
-            val intent = Intent(context, AgentForegroundService::class.java).apply {
-                action = ACTION_SEND_COMMAND
-                putExtra(EXTRA_COMMAND, command)
-            }
-            ContextCompat.startForegroundService(context, intent)
+            SshSessionManager.sendCommandAsync(command)
         }
 
         /**

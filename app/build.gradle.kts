@@ -28,6 +28,12 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 dependencies {
@@ -39,5 +45,19 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("com.github.mwiede:jsch:0.2.21")
 
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("org.apache.sshd:sshd-core:2.14.0")
+}
+
+tasks.withType<Test>().configureEach {
+    val isLinuxArm64 = System.getProperty("os.name").equals("Linux", ignoreCase = true) &&
+        System.getProperty("os.arch") in setOf("aarch64", "arm64")
+    if (isLinuxArm64) {
+        // shortcut: Robolectric's conscrypt/nativeruntime lacks linux-aarch64 binaries; runs on x86_64 CI
+        exclude("**/MainActivityE2ETest.class")
+    }
 }

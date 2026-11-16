@@ -7,12 +7,15 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -83,6 +86,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         requestNotificationPermissionIfNeeded()
         setContent {
             MaterialTheme {
@@ -146,6 +150,7 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .imePadding()
                         .verticalScroll(rememberScrollState())
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -278,7 +283,9 @@ fun StatusScreen(modifier: Modifier = Modifier) {
         }
     ) {
         Column(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .safeDrawingPadding()
         ) {
             Row(
                 modifier = Modifier
@@ -607,8 +614,8 @@ private fun PtyTerminalCard(
         commandText = ""
     }
 
-    LaunchedEffect(ptyOutput) {
-        outputScrollState.animateScrollTo(outputScrollState.maxValue)
+    LaunchedEffect(ptyOutput, outputScrollState.maxValue) {
+        outputScrollState.scrollTo(outputScrollState.maxValue)
     }
 
     Column(modifier = modifier) {
