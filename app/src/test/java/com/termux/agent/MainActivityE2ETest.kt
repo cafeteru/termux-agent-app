@@ -167,6 +167,39 @@ class MainActivityE2ETest {
     }
 
     @Test
+    fun interactiveTerminalModeStreamsKeystrokesDirectlyToPty() {
+        FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
+            ActivityScenario.launch(MainActivity::class.java).use {
+                drainStartedServices()
+
+                val connectState = connectTestServer(server.port)
+                assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
+
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    composeRule.onAllNodesWithText("termux@local:~$ ", substring = true)
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
+                }
+
+                composeRule.onNodeWithText("Directo").performClick()
+                composeRule.onNodeWithText("Modo interactivo (en vivo)").assertIsDisplayed()
+
+                composeRule.onNodeWithText("Teclado directo (escribe en vivo a Termux)...").performTextInput("ls")
+                composeRule.onNodeWithText("TAB").performClick()
+                composeRule.onNodeWithContentDescription("Flecha arriba").performClick()
+                composeRule.onNodeWithContentDescription("Flecha abajo").performClick()
+
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    server.receivedRawString().contains("ls\t\u001B[A\u001B[B")
+                }
+
+                composeRule.onNodeWithText("Comando").performClick()
+                composeRule.onNodeWithText("Modo búfer (comando)").assertIsDisplayed()
+            }
+        }
+    }
+
+    @Test
     fun drawerFormValidationAuthSwitchAndPersistence() {
         ActivityScenario.launch(MainActivity::class.java).use {
             drainStartedServices()
