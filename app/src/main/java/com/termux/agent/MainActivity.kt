@@ -302,17 +302,11 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                         contentDescription = "Abrir configuración SSH"
                     )
                 }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Termux Agent",
-                        style = MaterialTheme.typography.titleLarge
-                    )
-                    Text(
-                        text = "${config.host}:${config.port}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    text = "Termux Agent",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.weight(1f)
+                )
                 if (sessionState !is ConnectionState.Disconnected) {
                     IconButton(
                         onClick = { AgentForegroundService.disconnect(context) }
