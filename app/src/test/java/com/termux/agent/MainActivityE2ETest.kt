@@ -31,7 +31,7 @@ import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "w411dp-h915dp")
 class MainActivityE2ETest {
 
     @get:Rule
@@ -166,17 +166,22 @@ class MainActivityE2ETest {
             drainStartedServices()
 
             composeRule.onNodeWithContentDescription("Abrir configuración SSH").performClick()
-            composeRule.onNodeWithContentDescription("Mostrar contraseña").performClick()
-            composeRule.onNodeWithContentDescription("Ocultar contraseña").assertIsDisplayed()
+            composeRule.waitForIdle()
+            composeRule.onNodeWithContentDescription("Mostrar contraseña")
+                .performScrollTo()
+                .performClick()
+            composeRule.onNodeWithContentDescription("Ocultar contraseña")
+                .performScrollTo()
+                .assertIsDisplayed()
 
-            composeRule.onNodeWithText("Puerto").performTextClearance()
+            composeRule.onNodeWithText("Puerto").performScrollTo().performTextClearance()
             composeRule.onNodeWithText("Puerto").performTextInput("0")
             composeRule.onNodeWithText("Guardar y Conectar").performScrollTo().performClick()
             composeRule.onNodeWithText(
                 "Puerto SSH inválido. Introduce un valor entre 1 y 65535."
             ).performScrollTo().assertIsDisplayed()
 
-            composeRule.onNodeWithText("Puerto").performTextClearance()
+            composeRule.onNodeWithText("Puerto").performScrollTo().performTextClearance()
             composeRule.onNodeWithText("Puerto").performTextInput("8022")
             composeRule.onNodeWithText("Clave SSH (key)").performScrollTo().performClick()
             composeRule.onNodeWithText("Regenerar clave").performScrollTo().performClick()
