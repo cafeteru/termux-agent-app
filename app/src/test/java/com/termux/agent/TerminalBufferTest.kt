@@ -75,4 +75,27 @@ class TerminalBufferTest {
         )
         assertEquals("~/repo $ git pull", result)
     }
+
+    @Test
+    fun extractCommandFromLineExtractsAfterShellPrompt() {
+        assertEquals("cd Download/", TerminalBuffer.extractCommandFromLine("termux@local:~$ cd Download/"))
+        assertEquals("git status", TerminalBuffer.extractCommandFromLine("~ $ git status"))
+        assertEquals("id", TerminalBuffer.extractCommandFromLine("root@localhost:~# id"))
+        assertEquals("cat file", TerminalBuffer.extractCommandFromLine("host% cat file"))
+        assertEquals("agy", TerminalBuffer.extractCommandFromLine("❯ agy"))
+        assertEquals("whoami", TerminalBuffer.extractCommandFromLine("> whoami"))
+        assertEquals("", TerminalBuffer.extractCommandFromLine("~ $ "))
+        assertEquals(null, TerminalBuffer.extractCommandFromLine("64 bytes from 127.0.0.1: icmp_seq=1"))
+    }
+
+    @Test
+    fun currentLineUpdatesWhenTabCompletes() {
+        val buffer = TerminalBuffer()
+        buffer.feed("termux@local:~$ cd Down")
+        assertEquals("cd Down", TerminalBuffer.extractCommandFromLine(buffer.getCurrentLineText()))
+
+        // Simulate bash tab completion: erase in line and append completion
+        buffer.feed("\u0008\u0008\u0008\u0008Download/\u001B[K")
+        assertEquals("cd Download/", TerminalBuffer.extractCommandFromLine(buffer.getCurrentLineText()))
+    }
 }

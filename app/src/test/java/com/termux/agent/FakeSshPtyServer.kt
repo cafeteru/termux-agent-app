@@ -25,6 +25,8 @@ class FakeSshPtyServer(
 ) : AutoCloseable {
     val receivedCommands = CopyOnWriteArrayList<String>()
     private val rawBytes = ByteArrayOutputStream()
+    @Volatile
+    private var activeCommand: FakePtyCommand? = null
 
     private val server: SshServer = SshServer.setUpDefaultServer().apply {
         host = "127.0.0.1"
@@ -39,12 +41,18 @@ class FakeSshPtyServer(
         publickeyAuthenticator = PublickeyAuthenticator { username, _, _ ->
             username == expectedUser
         }
-        shellFactory = ShellFactory { FakePtyCommand(receivedCommands, rawBytes) }
+        shellFactory = ShellFactory {
+            FakePtyCommand(receivedCommands, rawBytes).also { activeCommand = it }
+        }
         start()
     }
 
     val port: Int
         get() = server.port
+
+    fun sendOutput(text: String) {
+        activeCommand?.sendOutput(text)
+    }
 
     fun receivedRawString(): String = synchronized(rawBytes) {
         rawBytes.toString(Charsets.UTF_8.name())
@@ -77,6 +85,12 @@ class FakeSshPtyServer(
 
         override fun setExitCallback(callback: ExitCallback?) {
             exitCallback = callback
+        }
+
+        fun sendOutput(text: String) {
+            val out = output ?: return
+            out.write(text.toByteArray(Charsets.UTF_8))
+            out.flush()
         }
 
         override fun start(channel: ChannelSession?, env: Environment?) {

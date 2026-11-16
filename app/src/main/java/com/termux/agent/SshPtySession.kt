@@ -25,6 +25,8 @@ class SshPtySession {
 
     private val _ptyOutput = MutableStateFlow("")
     val ptyOutput: StateFlow<String> = _ptyOutput.asStateFlow()
+    private val _currentCommandLine = MutableStateFlow("")
+    val currentCommandLine: StateFlow<String> = _currentCommandLine.asStateFlow()
     private val terminalBuffer = TerminalBuffer()
 
     private var session: Session? = null
@@ -49,6 +51,7 @@ class SshPtySession {
             ++sessionGeneration
         }
         _ptyOutput.value = ""
+        _currentCommandLine.value = ""
         _connectionState.value = ConnectionState.Checking
 
         TermuxConnectionChecker.validateConfig(isTermuxInstalled, config)?.let { error ->
@@ -148,6 +151,7 @@ class SshPtySession {
         closeResources(resources)
         if (updateState) {
             _ptyOutput.value = ""
+            _currentCommandLine.value = ""
             _connectionState.value = ConnectionState.Disconnected
         }
     }
@@ -167,11 +171,16 @@ class SshPtySession {
                 if (!isCurrentSession) break
 
                 val chunk = String(buffer, 0, bytesRead, Charsets.UTF_8)
-                val rendered = synchronized(lock) {
+                val (rendered, commandLine) = synchronized(lock) {
                     terminalBuffer.feed(chunk)
-                    terminalBuffer.render()
+                    val renderedText = terminalBuffer.render()
+                    val lineText = terminalBuffer.getCurrentLineText()
+                    renderedText to TerminalBuffer.extractCommandFromLine(lineText)
                 }
                 _ptyOutput.value = rendered
+                if (commandLine != null) {
+                    _currentCommandLine.value = commandLine
+                }
             }
         } catch (_: Exception) {
             // Only surface an error if disconnect() has not already invalidated this generation.
@@ -226,6 +235,7 @@ object SshSessionManager {
 
     val connectionState: StateFlow<ConnectionState> = activeSession.connectionState
     val ptyOutput: StateFlow<String> = activeSession.ptyOutput
+    val currentCommandLine: StateFlow<String> = activeSession.currentCommandLine
 
     /**
      * Returns true once per process so the UI only auto-connects on cold start.

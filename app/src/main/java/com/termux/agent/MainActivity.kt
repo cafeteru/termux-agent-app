@@ -151,6 +151,7 @@ fun StatusScreen(modifier: Modifier = Modifier) {
 
     val sessionState by SshSessionManager.connectionState.collectAsState()
     val ptyOutput by SshSessionManager.ptyOutput.collectAsState()
+    val currentCommandLine by SshSessionManager.currentCommandLine.collectAsState()
 
     LaunchedEffect(Unit) {
         if (SshSessionManager.consumeInitialAutoConnect()) {
@@ -345,6 +346,7 @@ fun StatusScreen(modifier: Modifier = Modifier) {
             if (sessionState is ConnectionState.Connected) {
                 PtyTerminalCard(
                     ptyOutput = ptyOutput,
+                    currentCommandLine = currentCommandLine,
                     onSendCommand = { command ->
                         AgentForegroundService.sendCommand(context, command)
                     },
@@ -624,11 +626,12 @@ private fun ConnectionStatusBanner(
 @Composable
 private fun PtyTerminalCard(
     ptyOutput: String,
+    currentCommandLine: String = "",
     onSendCommand: (String) -> Unit,
     onSendRaw: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var isInteractiveMode by rememberSaveable { mutableStateOf(false) }
+    var isInteractiveMode by rememberSaveable { mutableStateOf(true) }
     var interactiveValue by remember { mutableStateOf(TextFieldValue("")) }
     val interactiveFocusRequester = remember { FocusRequester() }
     var isInteractiveFocused by remember { mutableStateOf(false) }
@@ -785,6 +788,21 @@ private fun PtyTerminalCard(
             focusInteractiveField()
         } else {
             focusCommandField()
+        }
+    }
+
+    LaunchedEffect(currentCommandLine) {
+        if (currentCommandLine != interactiveValue.text) {
+            interactiveValue = TextFieldValue(
+                text = currentCommandLine,
+                selection = TextRange(currentCommandLine.length)
+            )
+        }
+        if (currentCommandLine != commandValue.text) {
+            commandValue = TextFieldValue(
+                text = currentCommandLine,
+                selection = TextRange(currentCommandLine.length)
+            )
         }
     }
 

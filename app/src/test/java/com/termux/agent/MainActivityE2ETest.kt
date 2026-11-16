@@ -95,6 +95,7 @@ class MainActivityE2ETest {
                 }
                 composeRule.onNodeWithText("Termux conectado", substring = true).assertDoesNotExist()
 
+                composeRule.onNodeWithText("Comando").performClick()
                 composeRule.onNodeWithText("Comando").performTextInput("whoami")
                 composeRule.onNodeWithContentDescription("Enviar comando").performClick()
 
@@ -142,6 +143,7 @@ class MainActivityE2ETest {
                         .isNotEmpty()
                 }
 
+                composeRule.onNodeWithText("Comando").performClick()
                 composeRule.onNodeWithText("termux@local:~$ ", substring = true).performClick()
                 composeRule.onNodeWithText("Comando").assertIsFocused()
 
@@ -181,7 +183,7 @@ class MainActivityE2ETest {
                         .isNotEmpty()
                 }
 
-                composeRule.onNodeWithText("Directo").performClick()
+                // Direct mode is default
                 composeRule.onNodeWithText("Modo interactivo (en vivo)").assertIsDisplayed()
 
                 composeRule.onNodeWithText("Teclado directo (escribe en vivo a Termux)...").performTextInput("ls")
@@ -195,6 +197,33 @@ class MainActivityE2ETest {
 
                 composeRule.onNodeWithText("Comando").performClick()
                 composeRule.onNodeWithText("Modo búfer (comando)").assertIsDisplayed()
+            }
+        }
+    }
+
+    @Test
+    fun terminalCommandUpdateSyncsToInputField() {
+        FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
+            ActivityScenario.launch(MainActivity::class.java).use {
+                drainStartedServices()
+
+                val connectState = connectTestServer(server.port)
+                assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
+
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    composeRule.onAllNodesWithText("termux@local:~$ ", substring = true)
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
+                }
+
+                // Simulate terminal tab completion or history updating the active line
+                server.sendOutput("\rtermux@local:~$ cd Download/\u001B[K")
+
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    composeRule.onAllNodesWithText("cd Download/")
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
+                }
             }
         }
     }
