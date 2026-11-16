@@ -5,6 +5,7 @@ import com.jcraft.jsch.Session
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.io.InputStream
 import java.io.OutputStream
 import kotlin.concurrent.thread
@@ -14,7 +15,6 @@ import kotlin.concurrent.thread
  */
 class SshPtySession {
     private val lock = Any()
-    private val outputLock = Any()
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Checking)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -39,13 +39,8 @@ class SshPtySession {
     ): ConnectionState {
         disconnect()
 
-        val currentGeneration: Long
-        synchronized(lock) {
-            currentGeneration = ++sessionGeneration
-        }
-        synchronized(outputLock) {
-            _ptyOutput.value = ""
-        }
+        val currentGeneration = synchronized(lock) { ++sessionGeneration }
+        _ptyOutput.value = ""
         _connectionState.value = ConnectionState.Checking
 
         TermuxConnectionChecker.validateConfig(isTermuxInstalled, config)?.let { error ->
@@ -115,28 +110,11 @@ class SshPtySession {
      * Closes the active PTY streams, shell channel, and SSH session.
      */
     fun disconnect() {
-        val toCloseInput: InputStream?
-        val toCloseOutput: OutputStream?
-        val toDisconnectChannel: ChannelShell?
-        val toDisconnectSession: Session?
-
-        synchronized(lock) {
+        val resources = synchronized(lock) {
             sessionGeneration++
-            toCloseInput = inputStream
-            toCloseOutput = outputStream
-            toDisconnectChannel = channel
-            toDisconnectSession = session
-            inputStream = null
-            outputStream = null
-            channel = null
-            session = null
-            readerThread = null
+            clearSessionRefsLocked()
         }
-
-        runCatching { toCloseInput?.close() }
-        runCatching { toCloseOutput?.close() }
-        runCatching { toDisconnectChannel?.disconnect() }
-        runCatching { toDisconnectSession?.disconnect() }
+        closeResources(resources)
     }
 
     private fun readPtyLoop(stream: InputStream, generation: Long) {
@@ -144,21 +122,59 @@ class SshPtySession {
         try {
             while (true) {
                 val bytesRead = stream.read(buffer)
-                if (bytesRead < 0) break
+                if (bytesRead < 0) {
+                    handleRemoteTermination(generation)
+                    break
+                }
                 if (bytesRead == 0) continue
 
                 val isCurrentSession = synchronized(lock) { sessionGeneration == generation }
                 if (!isCurrentSession) break
 
                 val chunk = String(buffer, 0, bytesRead, Charsets.UTF_8)
-                synchronized(outputLock) {
-                    _ptyOutput.value = SshSessionManager.appendBoundedOutput(_ptyOutput.value, chunk)
+                _ptyOutput.update { current ->
+                    SshSessionManager.appendBoundedOutput(current, chunk)
                 }
             }
         } catch (_: Exception) {
-            // Stream closed during disconnect or remote termination.
+            // Only surface an error if disconnect() has not already invalidated this generation.
+            handleRemoteTermination(generation)
         }
     }
+
+    private fun handleRemoteTermination(generation: Long) {
+        val resources = synchronized(lock) {
+            if (sessionGeneration != generation) return
+            sessionGeneration++
+            clearSessionRefsLocked()
+        }
+        closeResources(resources)
+        _connectionState.value = ConnectionState.Error("Sesión PTY cerrada por Termux.")
+    }
+
+    private fun clearSessionRefsLocked(): SessionResources {
+        val resources = SessionResources(inputStream, outputStream, channel, session)
+        inputStream = null
+        outputStream = null
+        channel = null
+        session = null
+        readerThread = null
+        return resources
+    }
+
+    private fun closeResources(resources: SessionResources) {
+        runCatching { resources.input?.close() }
+        runCatching { resources.output?.close() }
+        runCatching { resources.channel?.disconnect() }
+        runCatching { resources.session?.disconnect() }
+    }
+
+    private data class SessionResources(
+        val input: InputStream?,
+        val output: OutputStream?,
+        val channel: ChannelShell?,
+        val session: Session?
+    )
 }
 
 /**

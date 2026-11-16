@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -12,8 +13,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -38,13 +42,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -86,17 +96,17 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun StatusScreen() {
+fun StatusScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
     var config by remember { mutableStateOf(SshConfigStore.load(context)) }
-    var portText by remember { mutableStateOf(config.port.toString()) }
-    var passwordVisible by remember { mutableStateOf(false) }
+    var portText by rememberSaveable { mutableStateOf(config.port.toString()) }
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
     var feedbackMessage by remember { mutableStateOf<String?>(null) }
-    var validationError by remember { mutableStateOf<String?>(null) }
+    var validationError by rememberSaveable { mutableStateOf<String?>(null) }
 
     val sessionState by SshSessionManager.connectionState.collectAsState()
     val ptyOutput by SshSessionManager.ptyOutput.collectAsState()
@@ -107,20 +117,27 @@ fun StatusScreen() {
         }
     }
 
+    BackHandler(enabled = drawerState.isOpen) {
+        scope.launch { drawerState.close() }
+    }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
+        modifier = modifier,
         drawerContent = {
             ModalDrawerSheet {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .imePadding()
                         .verticalScroll(rememberScrollState())
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
                         text = "Configuración SSH",
-                        style = MaterialTheme.typography.titleLarge
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.semantics { heading() }
                     )
                     Text(
                         text = "Target: ${config.host}:${portText.ifBlank { config.port.toString() }}",
@@ -175,14 +192,16 @@ fun StatusScreen() {
                             config = updated
                             SshConfigStore.save(context, updated)
                             feedbackMessage = "Nueva clave SSH generada. Copia el comando en Termux."
-                        }
+                        },
+                        modifier = Modifier.fillMaxWidth()
                     )
 
                     validationError?.let { error ->
                         Text(
                             text = error,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
                         )
                     }
 
@@ -212,7 +231,11 @@ fun StatusScreen() {
             }
         }
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .safeDrawingPadding()
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -275,7 +298,8 @@ fun StatusScreen() {
                         ptyOutput = ptyOutput,
                         onSendCommand = { command ->
                             AgentForegroundService.sendCommand(context, command)
-                        }
+                        },
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             }
@@ -296,10 +320,11 @@ private fun SshConfigMenuCard(
     onTogglePasswordVisibility: () -> Unit,
     onCopySetupCommand: () -> Unit,
     onCopyPublicKey: () -> Unit,
-    onRegenerateKey: () -> Unit
+    onRegenerateKey: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
         )
@@ -461,42 +486,49 @@ private fun PublicKeyAuthSection(
 }
 
 @Composable
-private fun ConnectionStatusBanner(state: ConnectionState) {
-    when (state) {
-        ConnectionState.Checking -> Text(
-            text = "Detectando Termux y conectando por SSH...",
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center
-        )
-        is ConnectionState.Connected -> Text(
-            text = "Termux conectado (${state.host}:${state.port})\nServidor: ${state.serverBanner}",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.primary,
-            textAlign = TextAlign.Center
-        )
-        is ConnectionState.Error -> Text(
-            text = "Error detectado: ${state.reason}",
-            color = MaterialTheme.colorScheme.error,
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center
-        )
+private fun ConnectionStatusBanner(
+    state: ConnectionState,
+    modifier: Modifier = Modifier
+) {
+    val (message, color) = when (state) {
+        ConnectionState.Checking -> {
+            "Detectando Termux y conectando por SSH..." to MaterialTheme.colorScheme.onSurface
+        }
+        is ConnectionState.Connected -> {
+            "Termux conectado (${state.host}:${state.port})\nServidor: ${state.serverBanner}" to MaterialTheme.colorScheme.primary
+        }
+        is ConnectionState.Error -> {
+            "Error detectado: ${state.reason}" to MaterialTheme.colorScheme.error
+        }
     }
+    Text(
+        text = message,
+        color = color,
+        style = MaterialTheme.typography.bodyMedium,
+        textAlign = TextAlign.Center,
+        modifier = modifier.semantics { liveRegion = LiveRegionMode.Polite }
+    )
 }
 
 @Composable
 private fun PtyTerminalCard(
     ptyOutput: String,
-    onSendCommand: (String) -> Unit
+    onSendCommand: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    var commandText by remember { mutableStateOf("") }
+    var commandText by rememberSaveable { mutableStateOf("") }
     val outputScrollState = rememberScrollState()
+    val submitCommand = {
+        onSendCommand(commandText)
+        commandText = ""
+    }
 
     LaunchedEffect(ptyOutput) {
         outputScrollState.animateScrollTo(outputScrollState.maxValue)
     }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
         )
@@ -509,7 +541,8 @@ private fun PtyTerminalCard(
         ) {
             Text(
                 text = "Consola PTY SSH",
-                style = MaterialTheme.typography.titleMedium
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.semantics { heading() }
             )
             Surface(
                 modifier = Modifier
@@ -537,14 +570,11 @@ private fun PtyTerminalCard(
                     onValueChange = { commandText = it },
                     label = { Text("Comando") },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { submitCommand() }),
                     modifier = Modifier.weight(1f)
                 )
-                Button(
-                    onClick = {
-                        onSendCommand(commandText)
-                        commandText = ""
-                    }
-                ) {
+                Button(onClick = submitCommand) {
                     Text(text = "Enviar")
                 }
             }

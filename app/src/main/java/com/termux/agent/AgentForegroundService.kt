@@ -12,13 +12,21 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
+import kotlin.concurrent.thread
 
 /**
  * Foreground service keeping the Termux SSH PTY session alive across app backgrounding.
  */
 class AgentForegroundService : Service() {
     private val executor = Executors.newSingleThreadExecutor()
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var isObservingState = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -29,18 +37,25 @@ class AgentForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundWithState(SshSessionManager.connectionState.value)
+        if (!isObservingState) {
+            isObservingState = true
+            serviceScope.launch {
+                SshSessionManager.connectionState.collect { state ->
+                    updateNotification(state)
+                }
+            }
+        }
 
         when (intent?.action) {
             ACTION_CONNECT, null -> {
                 executor.execute {
                     val config = SshConfigStore.load(this)
-                    val result = SshSessionManager.connect(
+                    SshSessionManager.connect(
                         isTermuxInstalled = {
                             TermuxConnectionChecker.isTermuxInstalled(packageManager)
                         },
                         config = config
                     )
-                    updateNotification(result)
                 }
             }
             ACTION_SEND_COMMAND -> {
@@ -61,8 +76,11 @@ class AgentForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        serviceScope.cancel()
         executor.shutdownNow()
-        Thread { SshSessionManager.disconnect() }.start()
+        thread(start = true, isDaemon = true, name = "termux-ssh-disconnect") {
+            SshSessionManager.disconnect()
+        }
         super.onDestroy()
     }
 
