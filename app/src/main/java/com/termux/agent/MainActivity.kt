@@ -19,19 +19,25 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +51,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -82,6 +89,8 @@ class MainActivity : ComponentActivity() {
 fun StatusScreen() {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
 
     var config by remember { mutableStateOf(SshConfigStore.load(context)) }
     var portText by remember { mutableStateOf(config.port.toString()) }
@@ -91,7 +100,6 @@ fun StatusScreen() {
 
     val sessionState by SshSessionManager.connectionState.collectAsState()
     val ptyOutput by SshSessionManager.ptyOutput.collectAsState()
-    val displayedState = validationError?.let { ConnectionState.Error(it) } ?: sessionState
 
     LaunchedEffect(Unit) {
         if (SshSessionManager.connectionState.value !is ConnectionState.Connected) {
@@ -99,104 +107,178 @@ fun StatusScreen() {
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = "Termux Agent",
-            style = MaterialTheme.typography.headlineMedium
-        )
-        Text(
-            text = "Target SSH: ${config.host}:${portText.ifBlank { config.port.toString() }}",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Configuración SSH",
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                    Text(
+                        text = "Target: ${config.host}:${portText.ifBlank { config.port.toString() }}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    HorizontalDivider()
 
-        SshConfigMenuCard(
-            config = config,
-            portText = portText,
-            passwordVisible = passwordVisible,
-            feedbackMessage = feedbackMessage,
-            onSelectAuthMethod = { method ->
-                config = config.copy(authMethod = method)
-                feedbackMessage = null
-            },
-            onUsernameChange = { value ->
-                config = config.copy(username = value)
-            },
-            onPortChange = { value ->
-                val digits = value.filter(Char::isDigit).take(5)
-                portText = digits
-                validationError = null
-                digits.toIntOrNull()?.takeIf { it in 1..65535 }?.let { validPort ->
-                    config = config.copy(port = validPort)
+                    SshConfigMenuCard(
+                        config = config,
+                        portText = portText,
+                        passwordVisible = passwordVisible,
+                        feedbackMessage = feedbackMessage,
+                        onSelectAuthMethod = { method ->
+                            config = config.copy(authMethod = method)
+                            feedbackMessage = null
+                        },
+                        onUsernameChange = { value ->
+                            config = config.copy(username = value)
+                        },
+                        onPortChange = { value ->
+                            val digits = value.filter(Char::isDigit).take(5)
+                            portText = digits
+                            validationError = null
+                            digits.toIntOrNull()?.takeIf { it in 1..65535 }?.let { validPort ->
+                                config = config.copy(port = validPort)
+                            }
+                        },
+                        onPasswordChange = { value ->
+                            config = config.copy(password = value)
+                        },
+                        onTogglePasswordVisibility = {
+                            passwordVisible = !passwordVisible
+                        },
+                        onCopySetupCommand = {
+                            SshConfigStore.save(context, config)
+                            val cmd = SshKeyManager.buildAuthorizedKeysCommand(config.publicKeyAuthorized)
+                            clipboard.setText(AnnotatedString(cmd))
+                            feedbackMessage = "Comando copiado. Pégalo en Termux."
+                        },
+                        onCopyPublicKey = {
+                            SshConfigStore.save(context, config)
+                            clipboard.setText(AnnotatedString(config.publicKeyAuthorized))
+                            feedbackMessage = "Clave pública copiada al portapapeles."
+                        },
+                        onRegenerateKey = {
+                            val (newPriv, newPub) = SshKeyManager.generateKeyPair()
+                            val updated = config.copy(
+                                privateKeyPem = newPriv,
+                                publicKeyAuthorized = newPub
+                            )
+                            config = updated
+                            SshConfigStore.save(context, updated)
+                            feedbackMessage = "Nueva clave SSH generada. Copia el comando en Termux."
+                        }
+                    )
+
+                    validationError?.let { error ->
+                        Text(
+                            text = error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            val parsedPort = portText.trim().toIntOrNull()
+                            if (parsedPort == null || parsedPort !in 1..65535) {
+                                validationError = "Puerto SSH inválido. Introduce un valor entre 1 y 65535."
+                                return@Button
+                            }
+                            validationError = null
+                            val normalized = config.copy(
+                                port = parsedPort,
+                                username = config.username.trim().ifBlank { AppConfig.DEFAULT_SSH_USER }
+                            )
+                            config = normalized
+                            SshConfigStore.save(context, normalized)
+                            AgentForegroundService.connect(context)
+                            scope.launch { drawerState.close() }
+                        },
+                        enabled = sessionState !is ConnectionState.Checking,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(text = "Guardar y Conectar")
+                    }
                 }
-            },
-            onPasswordChange = { value ->
-                config = config.copy(password = value)
-            },
-            onTogglePasswordVisibility = {
-                passwordVisible = !passwordVisible
-            },
-            onCopySetupCommand = {
-                SshConfigStore.save(context, config)
-                val cmd = SshKeyManager.buildAuthorizedKeysCommand(config.publicKeyAuthorized)
-                clipboard.setText(AnnotatedString(cmd))
-                feedbackMessage = "Comando copiado. Pégalo en Termux."
-            },
-            onCopyPublicKey = {
-                SshConfigStore.save(context, config)
-                clipboard.setText(AnnotatedString(config.publicKeyAuthorized))
-                feedbackMessage = "Clave pública copiada al portapapeles."
-            },
-            onRegenerateKey = {
-                val (newPriv, newPub) = SshKeyManager.generateKeyPair()
-                val updated = config.copy(
-                    privateKeyPem = newPriv,
-                    publicKeyAuthorized = newPub
-                )
-                config = updated
-                SshConfigStore.save(context, updated)
-                feedbackMessage = "Nueva clave SSH generada. Copia el comando en Termux."
             }
-        )
-
-        ConnectionStatusBanner(state = displayedState)
-
-        Button(
-            onClick = {
-                val parsedPort = portText.trim().toIntOrNull()
-                if (parsedPort == null || parsedPort !in 1..65535) {
-                    validationError = "Puerto SSH inválido. Introduce un valor entre 1 y 65535."
-                    return@Button
-                }
-                validationError = null
-                val normalized = config.copy(
-                    port = parsedPort,
-                    username = config.username.trim().ifBlank { AppConfig.DEFAULT_SSH_USER }
-                )
-                config = normalized
-                SshConfigStore.save(context, normalized)
-                AgentForegroundService.connect(context)
-            },
-            enabled = sessionState !is ConnectionState.Checking,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(text = "Guardar y Conectar")
         }
-
-        if (displayedState is ConnectionState.Connected) {
-            PtyTerminalCard(
-                ptyOutput = ptyOutput,
-                onSendCommand = { command ->
-                    AgentForegroundService.sendCommand(context, command)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = { scope.launch { drawerState.open() } }
+                ) {
+                    Text(text = "☰ SSH")
                 }
-            )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Termux Agent",
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                    Text(
+                        text = "${config.host}:${config.port}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            HorizontalDivider()
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                ConnectionStatusBanner(state = sessionState)
+
+                if (sessionState is ConnectionState.Error) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { scope.launch { drawerState.open() } },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(text = "Configurar SSH")
+                        }
+                        OutlinedButton(
+                            onClick = { AgentForegroundService.connect(context) },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(text = "Reintentar")
+                        }
+                    }
+                }
+
+                if (sessionState is ConnectionState.Connected) {
+                    PtyTerminalCard(
+                        ptyOutput = ptyOutput,
+                        onSendCommand = { command ->
+                            AgentForegroundService.sendCommand(context, command)
+                        }
+                    )
+                }
+            }
         }
     }
 }
