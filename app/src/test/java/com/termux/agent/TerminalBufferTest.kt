@@ -125,4 +125,15 @@ class TerminalBufferTest {
         val currentLine = buffer.getCurrentLineText()
         assertEquals("cat file1.txt", TerminalBuffer.extractCommandFromLine(currentLine))
     }
+
+    @Test
+    fun getLinesReturnsListOfPlainStrings() {
+        val buffer = TerminalBuffer()
+        buffer.feed("line1\r\n\u001B[32mline2\u001B[0m\r\nline3")
+        val lines = buffer.getLines()
+        assertEquals(3, lines.size)
+        assertEquals("line1", lines[0])
+        assertEquals("line2", lines[1])
+        assertEquals("line3", lines[2])
+    }
 }

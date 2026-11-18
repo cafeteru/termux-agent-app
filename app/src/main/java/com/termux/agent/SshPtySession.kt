@@ -2,6 +2,10 @@ package com.termux.agent
 
 import com.jcraft.jsch.ChannelShell
 import com.jcraft.jsch.Session
+import com.termux.agent.adapter.AdapterEvent
+import com.termux.agent.adapter.AdapterRegistry
+import com.termux.agent.adapter.AgentAdapter
+import com.termux.agent.adapter.AgentState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,6 +32,17 @@ class SshPtySession {
     private val _currentCommandLine = MutableStateFlow("")
     val currentCommandLine: StateFlow<String> = _currentCommandLine.asStateFlow()
     private val terminalBuffer = TerminalBuffer()
+
+    private val _activeAdapter = MutableStateFlow<AgentAdapter>(AdapterRegistry.getAdapter("agy"))
+    val activeAdapter: StateFlow<AgentAdapter> = _activeAdapter.asStateFlow()
+
+    private val _adapterEvent = MutableStateFlow<AdapterEvent?>(null)
+    val adapterEvent: StateFlow<AdapterEvent?> = _adapterEvent.asStateFlow()
+
+    private val _agentState = MutableStateFlow<AgentState>(AgentState.IDLE)
+    val agentState: StateFlow<AgentState> = _agentState.asStateFlow()
+
+    private var lastOutputTimestamp: Long = 0L
 
     private var session: Session? = null
     private var channel: ChannelShell? = null
@@ -100,6 +115,45 @@ class SshPtySession {
         }
     }
 
+    fun setActiveAdapter(adapter: AgentAdapter) {
+        _activeAdapter.value = adapter
+        _agentState.value = adapter.currentState
+    }
+
+    /**
+     * Sends a user prompt via the active adapter to the PTY.
+     */
+    fun sendPrompt(text: String): Boolean {
+        val activeOutput = synchronized(lock) {
+            if (channel?.isConnected == true) outputStream else null
+        } ?: return false
+
+        return try {
+            _activeAdapter.value.sendPrompt(activeOutput, text)
+            _agentState.value = _activeAdapter.value.currentState
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Resolves a pending permission request via the active adapter.
+     */
+    fun resolvePermission(allow: Boolean, optionIndex: Int? = null): Boolean {
+        val activeOutput = synchronized(lock) {
+            if (channel?.isConnected == true) outputStream else null
+        } ?: return false
+
+        return try {
+            _activeAdapter.value.resolvePermission(activeOutput, allow, optionIndex)
+            _agentState.value = _activeAdapter.value.currentState
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     /**
      * Writes a command line to the active PTY shell output stream.
      */
@@ -150,6 +204,10 @@ class SshPtySession {
         }
         closeResources(resources)
         if (updateState) {
+            _activeAdapter.value.reset()
+            _adapterEvent.value = null
+            _agentState.value = AgentState.IDLE
+            lastOutputTimestamp = 0L
             _ptyOutput.value = ""
             _currentCommandLine.value = ""
             _connectionState.value = ConnectionState.Disconnected
@@ -171,16 +229,27 @@ class SshPtySession {
                 if (!isCurrentSession) break
 
                 val chunk = String(buffer, 0, bytesRead, Charsets.UTF_8)
-                val (rendered, commandLine) = synchronized(lock) {
+                val now = System.currentTimeMillis()
+                val idleMs = if (lastOutputTimestamp > 0L) now - lastOutputTimestamp else 0L
+                lastOutputTimestamp = now
+
+                val (rendered, commandLine, screenLines) = synchronized(lock) {
                     terminalBuffer.feed(chunk)
                     val renderedText = terminalBuffer.render()
                     val lineText = terminalBuffer.getCurrentLineText()
-                    renderedText to TerminalBuffer.extractCommandFromLine(lineText)
+                    val lines = terminalBuffer.getLines()
+                    Triple(renderedText, TerminalBuffer.extractCommandFromLine(lineText), lines)
                 }
                 _ptyOutput.value = rendered
                 if (commandLine != null) {
                     _currentCommandLine.value = commandLine
                 }
+
+                val event = _activeAdapter.value.onScreenUpdated(screenLines, idleMs)
+                if (event != null) {
+                    _adapterEvent.value = event
+                }
+                _agentState.value = _activeAdapter.value.currentState
             }
         } catch (_: Exception) {
             // Only surface an error if disconnect() has not already invalidated this generation.
@@ -236,6 +305,9 @@ object SshSessionManager {
     val connectionState: StateFlow<ConnectionState> = activeSession.connectionState
     val ptyOutput: StateFlow<String> = activeSession.ptyOutput
     val currentCommandLine: StateFlow<String> = activeSession.currentCommandLine
+    val activeAdapter: StateFlow<AgentAdapter> = activeSession.activeAdapter
+    val adapterEvent: StateFlow<AdapterEvent?> = activeSession.adapterEvent
+    val agentState: StateFlow<AgentState> = activeSession.agentState
 
     /**
      * Returns true once per process so the UI only auto-connects on cold start.
@@ -283,6 +355,13 @@ object SshSessionManager {
         }
         return if (alt) "\u001B$withCtrl" else withCtrl
     }
+
+    fun setActiveAdapter(adapter: AgentAdapter) = activeSession.setActiveAdapter(adapter)
+
+    fun sendPrompt(text: String): Boolean = activeSession.sendPrompt(text)
+
+    fun resolvePermission(allow: Boolean, optionIndex: Int? = null): Boolean =
+        activeSession.resolvePermission(allow, optionIndex)
 
     fun connect(
         isTermuxInstalled: () -> Boolean,
