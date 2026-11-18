@@ -297,6 +297,19 @@ class TerminalBuffer(private val maxLines: Int = 1_000) {
     }
 
     @Synchronized
+    fun getLines(): List<String> {
+        val result = ArrayList<String>(lines.size)
+        for (line in lines) {
+            val sb = StringBuilder(line.size)
+            for (cell in line) {
+                sb.append(cell.char)
+            }
+            result.add(sb.toString())
+        }
+        return result
+    }
+
+    @Synchronized
     fun renderPlainText(): String {
         val sb = StringBuilder()
         for (lineIdx in lines.indices) {
