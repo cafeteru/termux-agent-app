@@ -89,6 +89,8 @@ class MainActivityE2ETest {
                 )
                 assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
 
+                composeRule.onNodeWithText("Terminal").performClick()
+
                 composeRule.waitUntil(timeoutMillis = 5_000) {
                     composeRule.onAllNodesWithText("termux@local:~$ ", substring = true)
                         .fetchSemanticsNodes()
@@ -138,6 +140,8 @@ class MainActivityE2ETest {
                 val connectState = connectTestServer(server.port)
                 assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
 
+                composeRule.onNodeWithText("Terminal").performClick()
+
                 composeRule.waitUntil(timeoutMillis = 5_000) {
                     composeRule.onAllNodesWithText("termux@local:~$ ", substring = true)
                         .fetchSemanticsNodes()
@@ -178,6 +182,8 @@ class MainActivityE2ETest {
                 val connectState = connectTestServer(server.port)
                 assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
 
+                composeRule.onNodeWithText("Terminal").performClick()
+
                 composeRule.waitUntil(timeoutMillis = 5_000) {
                     composeRule.onAllNodesWithText("termux@local:~$ ", substring = true)
                         .fetchSemanticsNodes()
@@ -211,6 +217,8 @@ class MainActivityE2ETest {
                 val connectState = connectTestServer(server.port)
                 assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
 
+                composeRule.onNodeWithText("Terminal").performClick()
+
                 composeRule.waitUntil(timeoutMillis = 5_000) {
                     composeRule.onAllNodesWithText("termux@local:~$ ", substring = true)
                         .fetchSemanticsNodes()
@@ -238,6 +246,8 @@ class MainActivityE2ETest {
                 val connectState = connectTestServer(server.port)
                 assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
 
+                composeRule.onNodeWithText("Terminal").performClick()
+
                 composeRule.waitUntil(timeoutMillis = 5_000) {
                     composeRule.onAllNodesWithText("termux@local:~$ ", substring = true)
                         .fetchSemanticsNodes()
@@ -257,6 +267,42 @@ class MainActivityE2ETest {
                 composeRule.waitUntil(timeoutMillis = 5_000) {
                     server.receivedRawString().contains("\u0003\u001Bb\r")
                 }
+            }
+        }
+    }
+
+    @Test
+    fun chatTabAgentSelectionAndPromptSubmission() {
+        FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
+            ActivityScenario.launch(MainActivity::class.java).use {
+                drainStartedServices()
+
+                val connectState = connectTestServer(server.port)
+                assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
+
+                // By default connected lands on Chat tab
+                composeRule.onNodeWithText("Chat").assertIsDisplayed()
+                composeRule.onNodeWithText("Terminal").assertIsDisplayed()
+
+                // Default agent chip is Antigravity (agy)
+                composeRule.onNodeWithText("Antigravity (agy)").assertIsDisplayed()
+                composeRule.onNodeWithText("Copilot").assertIsDisplayed()
+
+                // Switch to Copilot agent chip
+                composeRule.onNodeWithText("Copilot").performClick()
+                assertEquals("copilot", SshSessionManager.activeAdapter.value.id)
+
+                // Submit prompt in Chat input field
+                composeRule.onNodeWithTag("chat_input_field").performTextInput("Hello agent")
+                composeRule.onNodeWithTag("chat_send_button").performClick()
+
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    composeRule.onAllNodesWithText("Hello agent")
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
+                }
+                composeRule.onNodeWithText("Hello agent").assertIsDisplayed()
+                assertTrue(SshSessionManager.chatMessages.value.any { it.content == "Hello agent" })
             }
         }
     }

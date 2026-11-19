@@ -96,4 +96,4 @@ Adding support for another CLI agent in the future (e.g., Claude Code or Gemini 
 - [x] **Phase 1 — Android Base & SSH Connection:** Kotlin/Jetpack Compose project setup, persistent `ForegroundService`, and SSH connection (`127.0.0.1:8022`) with PTY support.
 - [x] **Phase 2 — Adapter Engine & 2D Terminal:** In-memory terminal buffer integration, `AgentAdapter` interface, `AgyAdapter`, and `CopilotAdapter`.
 - [x] **Phase 3 — Interactive Notifications:** High-priority notification channel with `PendingIntent` actions for **Allow** / **Deny** buttons and task-completion alerts.
-- [ ] **Phase 4 — Dual Interface (Chat + Terminal):** Clean Chat tab with Markdown rendering and agent selector (`agy` / `copilot`) + direct Terminal tab for manual inspection.
+- [x] **Phase 4 — Dual Interface (Chat + Terminal):** Clean Chat tab with Markdown rendering and agent selector (`agy` / `copilot`) + direct Terminal tab for manual inspection.

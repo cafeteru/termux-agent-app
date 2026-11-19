@@ -56,6 +56,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -137,6 +139,11 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+enum class AppTab(val title: String) {
+    CHAT("Chat"),
+    TERMINAL("Terminal")
+}
+
 @Composable
 fun StatusScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -153,6 +160,11 @@ fun StatusScreen(modifier: Modifier = Modifier) {
     val sessionState by SshSessionManager.connectionState.collectAsState()
     val ptyOutput by SshSessionManager.ptyOutput.collectAsState()
     val currentCommandLine by SshSessionManager.currentCommandLine.collectAsState()
+    val activeAdapter by SshSessionManager.activeAdapter.collectAsState()
+    val agentState by SshSessionManager.agentState.collectAsState()
+    val adapterEvent by SshSessionManager.adapterEvent.collectAsState()
+    val chatMessages by SshSessionManager.chatMessages.collectAsState()
+    var selectedTab by rememberSaveable { mutableStateOf(AppTab.CHAT) }
 
     LaunchedEffect(Unit) {
         if (SshSessionManager.consumeInitialAutoConnect()) {
@@ -345,19 +357,60 @@ fun StatusScreen(modifier: Modifier = Modifier) {
             HorizontalDivider()
 
             if (sessionState is ConnectionState.Connected) {
-                PtyTerminalCard(
-                    ptyOutput = ptyOutput,
-                    currentCommandLine = currentCommandLine,
-                    onSendCommand = { command ->
-                        AgentForegroundService.sendCommand(context, command)
-                    },
-                    onSendRaw = { raw ->
-                        AgentForegroundService.sendRaw(context, raw)
-                    },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(8.dp)
-                )
+                TabRow(
+                    selectedTabIndex = selectedTab.ordinal,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    AppTab.values().forEach { tab ->
+                        Tab(
+                            selected = selectedTab == tab,
+                            onClick = { selectedTab = tab },
+                            text = { Text(tab.title) }
+                        )
+                    }
+                }
+
+                when (selectedTab) {
+                    AppTab.CHAT -> {
+                        ChatScreen(
+                            activeAdapter = activeAdapter,
+                            agentState = agentState,
+                            adapterEvent = adapterEvent,
+                            messages = chatMessages,
+                            onSelectAgent = { id ->
+                                SshSessionManager.setActiveAdapterById(id)
+                            },
+                            onLaunchAgent = {
+                                SshSessionManager.launchActiveAgentAsync()
+                            },
+                            onSendPrompt = { prompt ->
+                                SshSessionManager.sendPromptAsync(prompt)
+                            },
+                            onResolvePermission = { allow ->
+                                AgentForegroundService.resolvePermission(context, allow)
+                            },
+                            onClearChat = {
+                                SshSessionManager.clearChat()
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    AppTab.TERMINAL -> {
+                        PtyTerminalCard(
+                            ptyOutput = ptyOutput,
+                            currentCommandLine = currentCommandLine,
+                            onSendCommand = { command ->
+                                AgentForegroundService.sendCommand(context, command)
+                            },
+                            onSendRaw = { raw ->
+                                AgentForegroundService.sendRaw(context, raw)
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(8.dp)
+                        )
+                    }
+                }
             } else {
                 Column(
                     modifier = Modifier
