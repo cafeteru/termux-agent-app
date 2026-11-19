@@ -6,6 +6,8 @@ import com.termux.agent.adapter.AdapterEvent
 import com.termux.agent.adapter.AdapterRegistry
 import com.termux.agent.adapter.AgentAdapter
 import com.termux.agent.adapter.AgentState
+import com.termux.agent.adapter.AgyTranscriptParser
+import com.termux.agent.adapter.ChatMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,6 +43,9 @@ class SshPtySession {
 
     private val _agentState = MutableStateFlow<AgentState>(AgentState.IDLE)
     val agentState: StateFlow<AgentState> = _agentState.asStateFlow()
+
+    private val _chatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    val chatMessages: StateFlow<List<ChatMessage>> = _chatMessages.asStateFlow()
 
     private var lastOutputTimestamp: Long = 0L
 
@@ -120,8 +125,52 @@ class SshPtySession {
         _agentState.value = adapter.currentState
     }
 
+    fun setActiveAdapterById(id: String) {
+        val adapter = AdapterRegistry.getAdapter(id)
+        setActiveAdapter(adapter)
+    }
+
+    fun addChatMessage(message: ChatMessage) {
+        _chatMessages.update { it + message }
+    }
+
+    fun clearChat() {
+        _chatMessages.value = emptyList()
+    }
+
+    fun appendTranscriptLine(jsonLine: String) {
+        val parsed = AgyTranscriptParser.parseLine(jsonLine)
+        if (parsed != null) {
+            _chatMessages.update { list ->
+                if (list.none { it.stepIndex == parsed.stepIndex && it.sender == parsed.sender }) {
+                    list + parsed
+                } else {
+                    list
+                }
+            }
+        }
+    }
+
+    fun launchActiveAgent(workspacePath: String = ""): Boolean {
+        val command = _activeAdapter.value.launchCommand(workspacePath)
+        return sendCommand(command)
+    }
+
+    fun launchActiveAgentAsync(workspacePath: String = "") {
+        writeExecutor.execute { launchActiveAgent(workspacePath) }
+    }
+
     internal fun emitAdapterEventForTesting(event: AdapterEvent) {
         _adapterEvent.value = event
+        if (event is AdapterEvent.TurnCompleted && event.summary.isNotBlank()) {
+            val agentMsg = ChatMessage(
+                stepIndex = _chatMessages.value.size + 1,
+                sender = "agent",
+                content = event.summary,
+                timestamp = currentTimestamp()
+            )
+            _chatMessages.update { it + agentMsg }
+        }
         _agentState.value = _activeAdapter.value.currentState
     }
 
@@ -136,6 +185,13 @@ class SshPtySession {
         return try {
             _activeAdapter.value.sendPrompt(activeOutput, text)
             _agentState.value = _activeAdapter.value.currentState
+            val userMsg = ChatMessage(
+                stepIndex = _chatMessages.value.size + 1,
+                sender = "user",
+                content = text,
+                timestamp = currentTimestamp()
+            )
+            _chatMessages.update { it + userMsg }
             true
         } catch (_: Exception) {
             false
@@ -224,8 +280,10 @@ class SshPtySession {
         closeResources(resources)
         if (updateState) {
             _activeAdapter.value.reset()
+            _activeAdapter.value = AdapterRegistry.getAdapter("agy")
             _adapterEvent.value = null
             _agentState.value = AgentState.IDLE
+            _chatMessages.value = emptyList()
             lastOutputTimestamp = 0L
             _ptyOutput.value = ""
             _currentCommandLine.value = ""
@@ -267,6 +325,15 @@ class SshPtySession {
                 val event = _activeAdapter.value.onScreenUpdated(screenLines, idleMs)
                 if (event != null) {
                     _adapterEvent.value = event
+                    if (event is AdapterEvent.TurnCompleted && event.summary.isNotBlank()) {
+                        val agentMsg = ChatMessage(
+                            stepIndex = _chatMessages.value.size + 1,
+                            sender = "agent",
+                            content = event.summary,
+                            timestamp = currentTimestamp()
+                        )
+                        _chatMessages.update { it + agentMsg }
+                    }
                 }
                 _agentState.value = _activeAdapter.value.currentState
             }
@@ -303,6 +370,11 @@ class SshPtySession {
         runCatching { resources.session?.disconnect() }
     }
 
+    private fun currentTimestamp(): String {
+        val sdf = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
+        return sdf.format(java.util.Date())
+    }
+
     private data class SessionResources(
         val input: InputStream?,
         val output: OutputStream?,
@@ -327,6 +399,7 @@ object SshSessionManager {
     val activeAdapter: StateFlow<AgentAdapter> = activeSession.activeAdapter
     val adapterEvent: StateFlow<AdapterEvent?> = activeSession.adapterEvent
     val agentState: StateFlow<AgentState> = activeSession.agentState
+    val chatMessages: StateFlow<List<ChatMessage>> = activeSession.chatMessages
 
     /**
      * Returns true once per process so the UI only auto-connects on cold start.
@@ -376,6 +449,20 @@ object SshSessionManager {
     }
 
     fun setActiveAdapter(adapter: AgentAdapter) = activeSession.setActiveAdapter(adapter)
+
+    fun setActiveAdapterById(id: String) = activeSession.setActiveAdapterById(id)
+
+    fun addChatMessage(message: ChatMessage) = activeSession.addChatMessage(message)
+
+    fun clearChat() = activeSession.clearChat()
+
+    fun appendTranscriptLine(jsonLine: String) = activeSession.appendTranscriptLine(jsonLine)
+
+    fun launchActiveAgent(workspacePath: String = ""): Boolean =
+        activeSession.launchActiveAgent(workspacePath)
+
+    fun launchActiveAgentAsync(workspacePath: String = "") =
+        activeSession.launchActiveAgentAsync(workspacePath)
 
     internal fun emitAdapterEventForTesting(event: AdapterEvent) =
         activeSession.emitAdapterEventForTesting(event)

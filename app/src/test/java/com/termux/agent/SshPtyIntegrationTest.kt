@@ -10,6 +10,7 @@ class SshPtyIntegrationTest {
     @After
     fun tearDown() {
         SshSessionManager.disconnect()
+        SshSessionManager.setActiveAdapterById("agy")
     }
 
     @Test
@@ -234,6 +235,55 @@ class SshPtyIntegrationTest {
 
             SshSessionManager.disconnect()
             assertEquals(com.termux.agent.adapter.AgentState.IDLE, SshSessionManager.agentState.value)
+        }
+    }
+
+    @Test
+    fun chatMessagesFlowAndAgentLaunch() {
+        FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
+            val state = SshSessionManager.connect(
+                isTermuxInstalled = { true },
+                config = SshConfig(
+                    host = "127.0.0.1",
+                    port = server.port,
+                    username = "termux",
+                    authMethod = AuthMethod.PASSWORD,
+                    password = "secret"
+                ),
+                timeoutMs = 5_000
+            )
+            assertTrue(state is ConnectionState.Connected)
+
+            SshSessionManager.clearChat()
+            assertEquals(0, SshSessionManager.chatMessages.value.size)
+
+            SshSessionManager.setActiveAdapterById("copilot")
+            assertEquals("copilot", SshSessionManager.activeAdapter.value.id)
+
+            assertTrue(SshSessionManager.launchActiveAgent())
+            awaitCondition(timeoutMs = 5_000) {
+                server.receivedCommands.contains("copilot")
+            }
+
+            assertTrue(SshSessionManager.sendPrompt("Explain coroutines"))
+            assertEquals(1, SshSessionManager.chatMessages.value.size)
+            assertEquals("user", SshSessionManager.chatMessages.value[0].sender)
+            assertEquals("Explain coroutines", SshSessionManager.chatMessages.value[0].content)
+
+            SshSessionManager.emitAdapterEventForTesting(
+                com.termux.agent.adapter.AdapterEvent.TurnCompleted("Coroutines are lightweight threads.")
+            )
+            assertEquals(2, SshSessionManager.chatMessages.value.size)
+            assertEquals("agent", SshSessionManager.chatMessages.value[1].sender)
+            assertEquals("Coroutines are lightweight threads.", SshSessionManager.chatMessages.value[1].content)
+
+            val jsonTranscript = """{"step_index": 3, "type": "PLANNER_RESPONSE", "content": "Done task", "created_at": "12:00:00"}"""
+            SshSessionManager.appendTranscriptLine(jsonTranscript)
+            assertEquals(3, SshSessionManager.chatMessages.value.size)
+            assertEquals("Done task", SshSessionManager.chatMessages.value[2].content)
+
+            SshSessionManager.clearChat()
+            assertEquals(0, SshSessionManager.chatMessages.value.size)
         }
     }
 
