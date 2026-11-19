@@ -120,6 +120,11 @@ class SshPtySession {
         _agentState.value = adapter.currentState
     }
 
+    internal fun emitAdapterEventForTesting(event: AdapterEvent) {
+        _adapterEvent.value = event
+        _agentState.value = _activeAdapter.value.currentState
+    }
+
     /**
      * Sends a user prompt via the active adapter to the PTY.
      */
@@ -152,6 +157,20 @@ class SshPtySession {
         } catch (_: Exception) {
             false
         }
+    }
+
+    /**
+     * Enqueues prompt delivery on a daemon writer thread without blocking UI callers.
+     */
+    fun sendPromptAsync(text: String) {
+        writeExecutor.execute { sendPrompt(text) }
+    }
+
+    /**
+     * Enqueues permission resolution on a daemon writer thread without blocking UI callers.
+     */
+    fun resolvePermissionAsync(allow: Boolean, optionIndex: Int? = null) {
+        writeExecutor.execute { resolvePermission(allow, optionIndex) }
     }
 
     /**
@@ -358,10 +377,18 @@ object SshSessionManager {
 
     fun setActiveAdapter(adapter: AgentAdapter) = activeSession.setActiveAdapter(adapter)
 
+    internal fun emitAdapterEventForTesting(event: AdapterEvent) =
+        activeSession.emitAdapterEventForTesting(event)
+
     fun sendPrompt(text: String): Boolean = activeSession.sendPrompt(text)
+
+    fun sendPromptAsync(text: String) = activeSession.sendPromptAsync(text)
 
     fun resolvePermission(allow: Boolean, optionIndex: Int? = null): Boolean =
         activeSession.resolvePermission(allow, optionIndex)
+
+    fun resolvePermissionAsync(allow: Boolean, optionIndex: Int? = null) =
+        activeSession.resolvePermissionAsync(allow, optionIndex)
 
     fun connect(
         isTermuxInstalled: () -> Boolean,
