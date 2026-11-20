@@ -4,6 +4,7 @@
 import json
 import re
 import sys
+import unicodedata
 
 GH_PR_CREATE_RE = re.compile(r"\bgh\s+pr\s+create\b")
 CREATE_PR_SCRIPT_RE = re.compile(r"\bcreate_pr\.py\b")
@@ -13,15 +14,27 @@ GH_API_POST_RE = re.compile(r"(?:-X\s*POST|--method(?:\s+|=)POST)")
 GH_API_PULLS_RE = re.compile(r"/pulls\b")
 SEGMENT_SPLIT_RE = re.compile(r"\s*(?:&&|\|\||;|\n)\s*")
 
+PR_NOUN_PATTERN = r"(?:prs?|mrs?|(?:pull|merge)[\s-]+requests?)"
+
 BLOCKED_PR_INTENT_RE = re.compile(
-    r"\b(?:no|not|never|nunca|sin|evita(?:r)?|impide|bloquea(?:r)?|hook|don't|do\s+not|dont)\b"
-    r"(?:\s+\S+){0,5}\s+\b(?:pr|pull\s+request)\b"
-    r"|\b(?:pr|pull\s+request)\s+sin\s+avisar\b"
+    rf"\b(?:no|not|never|nunca|sin|evita(?:r)?|impid[ae]|bloquea(?:r)?|don't|do\s+not|dont|hook\s+(?:para|de|que|oa))\b"
+    rf"(?:\s+[^\s.,;!?]+){{0,5}}\s+\b{PR_NOUN_PATTERN}\b"
+    rf"|\b{PR_NOUN_PATTERN}\s+sin\s+avisar\b"
 )
 EXPLICIT_PR_RE = re.compile(
-    r"\b(?:crea|crear|abre|abrir|sube|subir|haz|hacer|genera|generar|create|open|submit)\b"
-    r"(?:\s+\w+){0,3}\s+\b(?:pr|pull\s+request)\b"
+    r"\b(?:crea(?:r|me|la|lo|las|los)?|abre(?:me|la|lo|las|los)?|abrir|"
+    r"sube(?:me|la|lo|las|los)?|subir|haz(?:me|la|lo|las|los)?|hacer|"
+    r"genera(?:r|me|la|lo)?|lanza(?:r|me|la|lo)?|manda(?:r|me|la|lo)?|"
+    r"envia(?:r|me|la|lo)?|publica(?:r|me|la|lo)?|monta(?:r|me|la|lo)?|"
+    r"create|open|submit|raise|make|send|publish)\b"
+    rf"(?:\s+[\w'-]+){{0,4}}\s+\b{PR_NOUN_PATTERN}\b"
 )
+
+
+def normalize_text(text: str) -> str:
+    """Lowercase text and strip combining diacritics for accent-insensitive matching."""
+    decomposed = unicodedata.normalize("NFD", text.lower())
+    return "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
 
 
 def is_pr_creation_command(command_line: str) -> bool:
@@ -42,10 +55,10 @@ def is_pr_creation_command(command_line: str) -> bool:
 
 def user_explicitly_requested_pr(last_user_input: str) -> bool:
     """Return True only when the user explicitly asked to create/open a PR without negation."""
-    lower = last_user_input.lower()
-    if BLOCKED_PR_INTENT_RE.search(lower):
+    normalized = normalize_text(last_user_input)
+    if BLOCKED_PR_INTENT_RE.search(normalized):
         return False
-    return bool(EXPLICIT_PR_RE.search(lower))
+    return bool(EXPLICIT_PR_RE.search(normalized))
 
 
 def evaluate_hook(payload: dict) -> dict:
@@ -140,6 +153,46 @@ def run_self_tests() -> None:
         }
     )
     assert res_api_post["decision"] == "deny"
+
+    for prompt in (
+        "crea la mr",
+        "ábreme una mr",
+        "hazme el merge request",
+        "crea la pr y mejora el hook",
+        "mejora el hook y crea la pr",
+        "no pasa nada, crea la mr",
+    ):
+        res = evaluate_hook(
+            {
+                "toolCall": {
+                    "name": "run_command",
+                    "args": {
+                        "CommandLine": "python3 .github/skills/github-pr-creator/scripts/create_pr.py --title x"
+                    },
+                },
+                "lastUserInput": prompt,
+            }
+        )
+        assert res["decision"] == "force_ask", f"Expected force_ask for {prompt!r}, got {res}"
+
+    for prompt in (
+        "no crees la mr",
+        "revisa la mr 12",
+        "falla los actions en las ultimas prs",
+        "añade un hook para crear pr",
+    ):
+        res = evaluate_hook(
+            {
+                "toolCall": {
+                    "name": "run_command",
+                    "args": {
+                        "CommandLine": "python3 .github/skills/github-pr-creator/scripts/create_pr.py --title x"
+                    },
+                },
+                "lastUserInput": prompt,
+            }
+        )
+        assert res["decision"] == "deny", f"Expected deny for {prompt!r}, got {res}"
 
 
 def main() -> int:
