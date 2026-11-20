@@ -144,6 +144,11 @@ enum class AppTab(val title: String) {
     TERMINAL("Terminal")
 }
 
+enum class DrawerScreen {
+    OPTIONS,
+    SSH_CONFIG
+}
+
 @Composable
 fun StatusScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -156,6 +161,7 @@ fun StatusScreen(modifier: Modifier = Modifier) {
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
     var feedbackMessage by remember { mutableStateOf<String?>(null) }
     var validationError by rememberSaveable { mutableStateOf<String?>(null) }
+    var currentDrawerScreen by rememberSaveable { mutableStateOf(DrawerScreen.OPTIONS) }
 
     val sessionState by SshSessionManager.connectionState.collectAsState()
     val ptyOutput by SshSessionManager.ptyOutput.collectAsState()
@@ -172,8 +178,18 @@ fun StatusScreen(modifier: Modifier = Modifier) {
         }
     }
 
+    LaunchedEffect(drawerState.isClosed) {
+        if (drawerState.isClosed) {
+            currentDrawerScreen = DrawerScreen.OPTIONS
+        }
+    }
+
     BackHandler(enabled = drawerState.isOpen) {
-        scope.launch { drawerState.close() }
+        if (currentDrawerScreen == DrawerScreen.SSH_CONFIG) {
+            currentDrawerScreen = DrawerScreen.OPTIONS
+        } else {
+            scope.launch { drawerState.close() }
+        }
     }
 
     ModalNavigationDrawer(
@@ -181,136 +197,94 @@ fun StatusScreen(modifier: Modifier = Modifier) {
         modifier = modifier,
         drawerContent = {
             ModalDrawerSheet {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .imePadding()
-                        .verticalScroll(rememberScrollState())
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Configuración SSH",
-                            style = MaterialTheme.typography.titleLarge,
-                            modifier = Modifier
-                                .weight(1f)
-                                .semantics { heading() }
+                when (currentDrawerScreen) {
+                    DrawerScreen.OPTIONS -> {
+                        DrawerOptionsMenu(
+                            onSelectConfig = {
+                                currentDrawerScreen = DrawerScreen.SSH_CONFIG
+                            },
+                            onCloseDrawer = {
+                                scope.launch { drawerState.close() }
+                            }
                         )
-                        IconButton(
-                            onClick = { scope.launch { drawerState.close() } }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Cerrar configuración SSH"
-                            )
-                        }
                     }
-                    Text(
-                        text = "Target: ${config.host}:${portText.ifBlank { config.port.toString() }}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    HorizontalDivider()
-
-                    SshConfigMenuCard(
-                        config = config,
-                        portText = portText,
-                        passwordVisible = passwordVisible,
-                        feedbackMessage = feedbackMessage,
-                        onSelectAuthMethod = { method ->
-                            config = config.copy(authMethod = method)
-                            feedbackMessage = null
-                        },
-                        onUsernameChange = { value ->
-                            config = config.copy(username = value)
-                        },
-                        onPortChange = { value ->
-                            val digits = value.filter(Char::isDigit).take(5)
-                            portText = digits
-                            validationError = null
-                            digits.toIntOrNull()?.takeIf { it in 1..65535 }?.let { validPort ->
-                                config = config.copy(port = validPort)
-                            }
-                        },
-                        onPasswordChange = { value ->
-                            config = config.copy(password = value)
-                        },
-                        onTogglePasswordVisibility = {
-                            passwordVisible = !passwordVisible
-                        },
-                        onCopySetupCommand = {
-                            SshConfigStore.save(context, config)
-                            val cmd = SshKeyManager.buildAuthorizedKeysCommand(config.publicKeyAuthorized)
-                            clipboard.setText(AnnotatedString(cmd))
-                            feedbackMessage = "Comando copiado. Pégalo en Termux."
-                        },
-                        onCopyPublicKey = {
-                            SshConfigStore.save(context, config)
-                            clipboard.setText(AnnotatedString(config.publicKeyAuthorized))
-                            feedbackMessage = "Clave pública copiada al portapapeles."
-                        },
-                        onRegenerateKey = {
-                            val (newPriv, newPub) = SshKeyManager.generateKeyPair()
-                            val updated = config.copy(
-                                privateKeyPem = newPriv,
-                                publicKeyAuthorized = newPub
-                            )
-                            config = updated
-                            SshConfigStore.save(context, updated)
-                            feedbackMessage = "Nueva clave SSH generada. Copia el comando en Termux."
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    validationError?.let { error ->
-                        SelectionContainer {
-                            Text(
-                                text = error,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
-                            )
-                        }
-                    }
-
-                    Button(
-                        onClick = {
-                            val parsedPort = portText.trim().toIntOrNull()
-                            if (parsedPort == null || parsedPort !in 1..65535) {
-                                validationError = "Puerto SSH inválido. Introduce un valor entre 1 y 65535."
-                                return@Button
-                            }
-                            validationError = null
-                            val normalized = config.copy(
-                                port = parsedPort,
-                                username = config.username.trim().ifBlank { AppConfig.DEFAULT_SSH_USER }
-                            )
-                            config = normalized
-                            SshConfigStore.save(context, normalized)
-                            AgentForegroundService.connect(context)
-                            scope.launch { drawerState.close() }
-                        },
-                        enabled = sessionState !is ConnectionState.Checking,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(text = "Guardar y Conectar")
-                    }
-
-                    if (sessionState !is ConnectionState.Disconnected) {
-                        OutlinedButton(
-                            onClick = {
-                                AgentForegroundService.disconnect(context)
+                    DrawerScreen.SSH_CONFIG -> {
+                        DrawerSshConfigContent(
+                            config = config,
+                            portText = portText,
+                            passwordVisible = passwordVisible,
+                            feedbackMessage = feedbackMessage,
+                            validationError = validationError,
+                            sessionState = sessionState,
+                            onBackToOptions = {
+                                currentDrawerScreen = DrawerScreen.OPTIONS
+                            },
+                            onCloseDrawer = {
                                 scope.launch { drawerState.close() }
                             },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(text = "Desconectar")
-                        }
+                            onSelectAuthMethod = { method ->
+                                config = config.copy(authMethod = method)
+                                feedbackMessage = null
+                            },
+                            onUsernameChange = { value ->
+                                config = config.copy(username = value)
+                            },
+                            onPortChange = { value ->
+                                val digits = value.filter(Char::isDigit).take(5)
+                                portText = digits
+                                validationError = null
+                                digits.toIntOrNull()?.takeIf { it in 1..65535 }?.let { validPort ->
+                                    config = config.copy(port = validPort)
+                                }
+                            },
+                            onPasswordChange = { value ->
+                                config = config.copy(password = value)
+                            },
+                            onTogglePasswordVisibility = {
+                                passwordVisible = !passwordVisible
+                            },
+                            onCopySetupCommand = {
+                                SshConfigStore.save(context, config)
+                                val cmd = SshKeyManager.buildAuthorizedKeysCommand(config.publicKeyAuthorized)
+                                clipboard.setText(AnnotatedString(cmd))
+                                feedbackMessage = "Comando copiado. Pégalo en Termux."
+                            },
+                            onCopyPublicKey = {
+                                SshConfigStore.save(context, config)
+                                clipboard.setText(AnnotatedString(config.publicKeyAuthorized))
+                                feedbackMessage = "Clave pública copiada al portapapeles."
+                            },
+                            onRegenerateKey = {
+                                val (newPriv, newPub) = SshKeyManager.generateKeyPair()
+                                val updated = config.copy(
+                                    privateKeyPem = newPriv,
+                                    publicKeyAuthorized = newPub
+                                )
+                                config = updated
+                                SshConfigStore.save(context, updated)
+                                feedbackMessage = "Nueva clave SSH generada. Copia el comando en Termux."
+                            },
+                            onSaveAndConnect = {
+                                val parsedPort = portText.trim().toIntOrNull()
+                                if (parsedPort == null || parsedPort !in 1..65535) {
+                                    validationError = "Puerto SSH inválido. Introduce un valor entre 1 y 65535."
+                                    return@DrawerSshConfigContent
+                                }
+                                validationError = null
+                                val normalized = config.copy(
+                                    port = parsedPort,
+                                    username = config.username.trim().ifBlank { AppConfig.DEFAULT_SSH_USER }
+                                )
+                                config = normalized
+                                SshConfigStore.save(context, normalized)
+                                AgentForegroundService.connect(context)
+                                scope.launch { drawerState.close() }
+                            },
+                            onDisconnect = {
+                                AgentForegroundService.disconnect(context)
+                                scope.launch { drawerState.close() }
+                            }
+                        )
                     }
                 }
             }
@@ -329,11 +303,14 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 IconButton(
-                    onClick = { scope.launch { drawerState.open() } }
+                    onClick = {
+                        currentDrawerScreen = DrawerScreen.OPTIONS
+                        scope.launch { drawerState.open() }
+                    }
                 ) {
                     Icon(
                         imageVector = Icons.Default.Menu,
-                        contentDescription = "Abrir configuración SSH"
+                        contentDescription = "Abrir menú"
                     )
                 }
                 Text(
@@ -428,7 +405,10 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             FilledIconButton(
-                                onClick = { scope.launch { drawerState.open() } }
+                                onClick = {
+                                    currentDrawerScreen = DrawerScreen.SSH_CONFIG
+                                    scope.launch { drawerState.open() }
+                                }
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Settings,
@@ -451,6 +431,209 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DrawerOptionsMenu(
+    onSelectConfig: () -> Unit,
+    onCloseDrawer: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "Menú de opciones",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.semantics { heading() }
+                )
+                Text(
+                    text = "Termux Agent",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(
+                onClick = onCloseDrawer
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Cerrar menú"
+                )
+            }
+        }
+
+        HorizontalDivider()
+
+        Text(
+            text = "Opciones",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        Card(
+            onClick = onSelectConfig,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("drawer_option_config"),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+            )
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Configuración",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = "Conexión SSH y ajustes de Termux",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = "Abrir configuración",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DrawerSshConfigContent(
+    config: SshConfig,
+    portText: String,
+    passwordVisible: Boolean,
+    feedbackMessage: String?,
+    validationError: String?,
+    sessionState: ConnectionState,
+    onBackToOptions: () -> Unit,
+    onCloseDrawer: () -> Unit,
+    onSelectAuthMethod: (AuthMethod) -> Unit,
+    onUsernameChange: (String) -> Unit,
+    onPortChange: (String) -> Unit,
+    onPasswordChange: (String) -> Unit,
+    onTogglePasswordVisibility: () -> Unit,
+    onCopySetupCommand: () -> Unit,
+    onCopyPublicKey: () -> Unit,
+    onRegenerateKey: () -> Unit,
+    onSaveAndConnect: () -> Unit,
+    onDisconnect: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBackToOptions
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                    contentDescription = "Volver al menú"
+                )
+            }
+            Text(
+                text = "Configuración SSH",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics { heading() }
+            )
+            IconButton(
+                onClick = onCloseDrawer
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Cerrar configuración SSH"
+                )
+            }
+        }
+        Text(
+            text = "Target: ${config.host}:${portText.ifBlank { config.port.toString() }}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        HorizontalDivider()
+
+        SshConfigMenuCard(
+            config = config,
+            portText = portText,
+            passwordVisible = passwordVisible,
+            feedbackMessage = feedbackMessage,
+            onSelectAuthMethod = onSelectAuthMethod,
+            onUsernameChange = onUsernameChange,
+            onPortChange = onPortChange,
+            onPasswordChange = onPasswordChange,
+            onTogglePasswordVisibility = onTogglePasswordVisibility,
+            onCopySetupCommand = onCopySetupCommand,
+            onCopyPublicKey = onCopyPublicKey,
+            onRegenerateKey = onRegenerateKey,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        validationError?.let { error ->
+            SelectionContainer {
+                Text(
+                    text = error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+                )
+            }
+        }
+
+        Button(
+            onClick = onSaveAndConnect,
+            enabled = sessionState !is ConnectionState.Checking,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(text = "Guardar y Conectar")
+        }
+
+        if (sessionState !is ConnectionState.Disconnected) {
+            OutlinedButton(
+                onClick = onDisconnect,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(text = "Desconectar")
             }
         }
     }
