@@ -324,6 +324,57 @@ class MainActivityE2ETest {
     }
 
     @Test
+    fun chatActionsOverflowMenuLaunchesAgentAndClearsMessages() {
+        FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
+            ActivityScenario.launch(MainActivity::class.java).use {
+                drainStartedServices()
+
+                val connectState = connectTestServer(server.port)
+                assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
+
+                composeRule.onNodeWithContentDescription("Lanzar agente en PTY").assertDoesNotExist()
+                composeRule.onNodeWithContentDescription("Limpiar mensajes de chat").assertDoesNotExist()
+
+                composeRule.onNodeWithContentDescription("Acciones del agente").performClick()
+                composeRule.waitForIdle()
+                composeRule.onNodeWithText("Iniciar agente").assertIsDisplayed()
+                composeRule.onNodeWithText("Limpiar chat").assertIsDisplayed()
+
+                composeRule.onNodeWithText("Iniciar agente").performSemanticsAction(SemanticsActions.OnClick)
+                composeRule.waitForIdle()
+                assertTrue(
+                    composeRule.onAllNodesWithText("Iniciar agente")
+                        .fetchSemanticsNodes()
+                        .isEmpty()
+                )
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    server.receivedCommands.contains("agy")
+                }
+
+                composeRule.onNodeWithTag("chat_input_field").performTextInput("Hola menú")
+                composeRule.onNodeWithTag("chat_send_button").performClick()
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    composeRule.onAllNodesWithText("Hola menú")
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
+                }
+                assertTrue(SshSessionManager.chatMessages.value.any { it.content == "Hola menú" })
+
+                composeRule.onNodeWithContentDescription("Acciones del agente").performClick()
+                composeRule.waitForIdle()
+                composeRule.onNodeWithText("Limpiar chat").performSemanticsAction(SemanticsActions.OnClick)
+                composeRule.waitForIdle()
+                assertTrue(
+                    composeRule.onAllNodesWithText("Limpiar chat")
+                        .fetchSemanticsNodes()
+                        .isEmpty()
+                )
+                assertTrue(SshSessionManager.chatMessages.value.isEmpty())
+            }
+        }
+    }
+
+    @Test
     fun workspacePickerNavigatesPersistsAndLaunchesAgentInSelectedDirectory() {
         FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
             ActivityScenario.launch(MainActivity::class.java).use {

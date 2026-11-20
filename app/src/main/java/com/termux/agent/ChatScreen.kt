@@ -30,11 +30,14 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -109,7 +112,7 @@ fun ChatScreen(
             onClearChat = onClearChat,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .padding(horizontal = 12.dp, vertical = 2.dp)
         )
 
         HorizontalDivider()
@@ -187,6 +190,8 @@ private fun AgentControlBar(
     onClearChat: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -217,26 +222,48 @@ private fun AgentControlBar(
         ) {
             AgentStateBadge(state = agentState)
 
-            IconButton(
-                onClick = onLaunchAgent,
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Lanzar agente en PTY",
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Acciones del agente",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
-            IconButton(
-                onClick = onClearChat,
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Limpiar mensajes de chat",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Iniciar agente") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            onLaunchAgent()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Limpiar chat") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            onClearChat()
+                        }
+                    )
+                }
             }
         }
     }
