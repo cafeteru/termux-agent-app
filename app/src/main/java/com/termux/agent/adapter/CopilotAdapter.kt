@@ -35,6 +35,11 @@ class CopilotAdapter : AgentAdapter {
         lastEmittedPermission = null
     }
 
+    override fun markCompleted() {
+        _currentState = AgentState.COMPLETED
+        lastEmittedPermission = null
+    }
+
     override fun reset() {
         _currentState = AgentState.IDLE
         lastEmittedPermission = null
@@ -60,12 +65,12 @@ class CopilotAdapter : AgentAdapter {
 
         // 2. Check for turn completion
         if (_currentState == AgentState.WORKING) {
-            val lastLine = recentLines.lastOrNull() ?: ""
-            val isPrompt = isPromptLine(lastLine)
+            val promptIndex = recentLines.indexOfLast { isPromptLine(it) }
+            val hasPromptNearBottom = promptIndex >= 0 && promptIndex >= recentLines.size - 4
 
-            if (isPrompt && idleMs >= 500) {
+            if (hasPromptNearBottom && idleMs >= 500) {
                 _currentState = AgentState.COMPLETED
-                val summary = extractSummary(recentLines)
+                val summary = extractSummary(recentLines, promptIndex)
                 return AdapterEvent.TurnCompleted(summary)
             }
         } else if (_currentState == AgentState.COMPLETED && idleMs >= 2000) {
@@ -115,8 +120,11 @@ class CopilotAdapter : AgentAdapter {
         return promptSuffixes.any { trimmed == it || trimmed.startsWith(it) || trimmed.endsWith(" $it") }
     }
 
-    private fun extractSummary(lines: List<String>): String {
-        val nonPromptLines = lines.dropLast(1).filter { it.isNotBlank() }
+    private fun extractSummary(lines: List<String>, promptIndex: Int = lines.lastIndex): String {
+        val beforePrompt = if (promptIndex > 0) lines.subList(0, promptIndex) else lines.dropLast(1)
+        val nonPromptLines = beforePrompt.filter { line ->
+            line.isNotBlank() && !line.all { ch -> ch == '─' || ch == '━' || ch == '-' || ch == '=' }
+        }
         return nonPromptLines.lastOrNull() ?: "Task completed"
     }
 }

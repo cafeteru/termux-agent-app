@@ -282,6 +282,26 @@ class SshPtyIntegrationTest {
             assertEquals(3, SshSessionManager.chatMessages.value.size)
             assertEquals("Done task", SshSessionManager.chatMessages.value[2].content)
 
+            // Polling live transcript for agy deduplicates user message and appends agent reply + completes turn
+            SshSessionManager.clearChat()
+            SshSessionManager.setActiveAdapterById("agy")
+            assertTrue(SshSessionManager.sendPrompt("revisa si puedes escribir"))
+            assertEquals(com.termux.agent.adapter.AgentState.WORKING, SshSessionManager.agentState.value)
+
+            server.fakeTranscriptJsonl = """
+                {"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"20:32:52","content":"<USER_REQUEST>\nrevisa si puedes escribir\n</USER_REQUEST>"}
+                {"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"20:32:53","content":"Sí, puedo escribir en el chat."}
+            """.trimIndent()
+
+            awaitCondition(timeoutMs = 5_000) {
+                SshSessionManager.chatMessages.value.any { it.sender == "agent" && it.content == "Sí, puedo escribir en el chat." }
+            }
+            assertEquals(2, SshSessionManager.chatMessages.value.size)
+            assertEquals("user", SshSessionManager.chatMessages.value[0].sender)
+            assertEquals(0, SshSessionManager.chatMessages.value[0].stepIndex)
+            assertEquals("agent", SshSessionManager.chatMessages.value[1].sender)
+            assertEquals("Sí, puedo escribir en el chat.", SshSessionManager.chatMessages.value[1].content)
+
             SshSessionManager.clearChat()
             assertEquals(0, SshSessionManager.chatMessages.value.size)
         }
