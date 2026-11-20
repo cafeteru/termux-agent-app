@@ -73,5 +73,9 @@ Each agent implements the common `AgentAdapter` interface:
      gradle testDebugUnitTest assembleDebug --no-daemon
      ```
 3. **On-Device APK Installation (Android 15):**
-   - Copy the built APK to shared Downloads (`cp -f app/build/outputs/apk/debug/app-debug.apk /sdcard/Download/termux-agent-0.0.1-debug.apk`) and install it from the system Files app (**Mis archivos → Descargas**).
+   - After implementing any app feature or fix, always build the debug APK (`gradle assembleDebug --no-daemon` or `gradle testDebugUnitTest assembleDebug --no-daemon`) and copy it to shared Downloads so it is immediately ready to test on-device without needing a follow-up request:
+     ```bash
+     cp -f app/build/outputs/apk/debug/app-debug.apk /sdcard/Download/termux-agent-0.0.1-debug.apk
+     ```
+   - Install it from the system Files app (**Mis archivos → Descargas**).
    - Termux's `com.termux.app.api.file.FileViewReceiverActivity` and `FileReceiverActivity` are disabled via `IPackageManager` (`setComponentEnabledSetting` using `/system/bin/app_process` with `chmod 0400 classes.dex` and `env -u LD_LIBRARY_PATH -u LD_PRELOAD`) so `.apk` files resolve directly to `com.google.android.packageinstaller` instead of `TermuxFileReceiver`.

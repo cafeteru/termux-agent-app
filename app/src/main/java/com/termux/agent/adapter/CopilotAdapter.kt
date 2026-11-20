@@ -12,13 +12,8 @@ class CopilotAdapter : AgentAdapter {
 
     private var lastEmittedPermission: String? = null
 
-    override fun launchCommand(workspacePath: String): String {
-        return if (workspacePath.isNotBlank()) {
-            "cd \"$workspacePath\" && copilot"
-        } else {
-            "copilot"
-        }
-    }
+    override fun launchCommand(workspacePath: String): String =
+        buildWorkspaceLaunchCommand(workspacePath, "copilot")
 
     override fun sendPrompt(ptyOutput: OutputStream, text: String) {
         ptyOutput.write(text.toByteArray(Charsets.UTF_8))

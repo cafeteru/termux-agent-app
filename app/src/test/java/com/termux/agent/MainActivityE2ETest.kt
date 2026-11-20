@@ -51,6 +51,7 @@ class MainActivityE2ETest {
     fun setUp() {
         app = ApplicationProvider.getApplicationContext()
         SshSessionManager.disconnect()
+        SshConfigStore.saveWorkspacePath(app, "")
         Shadows.shadowOf(app.packageManager).installPackage(
             PackageInfo().apply { packageName = AppConfig.TERMUX_PACKAGE_NAME }
         )
@@ -317,6 +318,54 @@ class MainActivityE2ETest {
                 }
                 composeRule.onNodeWithText("Hello agent").assertIsDisplayed()
                 assertTrue(SshSessionManager.chatMessages.value.any { it.content == "Hello agent" })
+            }
+        }
+    }
+
+    @Test
+    fun workspacePickerNavigatesPersistsAndLaunchesAgentInSelectedDirectory() {
+        FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
+            ActivityScenario.launch(MainActivity::class.java).use {
+                drainStartedServices()
+
+                val connectState = connectTestServer(server.port)
+                assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
+
+                composeRule.onNodeWithTag("workspace_selector_bar").performClick()
+                composeRule.onNodeWithText("Seleccionar proyecto").assertIsDisplayed()
+
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    composeRule.onAllNodesWithText("termux-agent-app")
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
+                }
+                composeRule.onNodeWithText(".hidden-repo").assertDoesNotExist()
+
+                composeRule.onNodeWithTag("workspace_picker_toggle_hidden").performClick()
+                composeRule.onNodeWithText(".hidden-repo").assertIsDisplayed()
+
+                composeRule.onNodeWithText("termux-agent-app").performClick()
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    composeRule.onAllNodesWithText("app")
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
+                }
+                composeRule.onNodeWithText("/home/termux/termux-agent-app").assertIsDisplayed()
+
+                composeRule.onNodeWithTag("workspace_picker_confirm").performClick()
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    composeRule.onAllNodesWithText("Seleccionar proyecto")
+                        .fetchSemanticsNodes()
+                        .isEmpty()
+                }
+
+                composeRule.onNodeWithText("Cambiar carpeta").assertIsDisplayed()
+                assertEquals("/home/termux/termux-agent-app", SshConfigStore.loadWorkspacePath(app))
+
+                composeRule.onNodeWithText("Iniciar Google Antigravity CLI en Termux").performClick()
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    server.receivedCommands.contains("cd \"/home/termux/termux-agent-app\" && agy")
+                }
             }
         }
     }

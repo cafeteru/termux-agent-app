@@ -14,7 +14,19 @@ class AgyAdapterTest {
     @Test
     fun testLaunchCommandWithAndWithoutWorkspace() {
         assertEquals("agy", adapter.launchCommand(""))
+        assertEquals("agy", adapter.launchCommand("   \r\n  "))
         assertEquals("cd \"/sdcard/project\" && agy", adapter.launchCommand("/sdcard/project"))
+        assertEquals("cd \"/sdcard/My Project\" && agy", adapter.launchCommand("/sdcard/My Project"))
+        assertEquals("cd \"\$HOME\" && agy", adapter.launchCommand("~"))
+        assertEquals("cd \"\$HOME/my-repo\" && agy", adapter.launchCommand("~/my-repo"))
+        assertEquals(
+            "cd \"/tmp/dir\\\"\\\$\\`\\\\name\" && agy",
+            adapter.launchCommand("/tmp/dir\"\$`\\name")
+        )
+        assertEquals(
+            "cd \"/sdcard/injected; rm -rf /\" && agy",
+            adapter.launchCommand("/sdcard/injected\r\n; rm -rf /")
+        )
     }
 
     @Test
