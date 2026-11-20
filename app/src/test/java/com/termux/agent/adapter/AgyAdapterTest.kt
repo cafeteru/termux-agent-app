@@ -131,4 +131,151 @@ class AgyAdapterTest {
         )
         assertEquals(AgentState.COMPLETED, adapter.currentState)
     }
+
+    @Test
+    fun testDetectsAgyFourOptionMenuWithWrappedLinesAndIgnoresTurnCompletion() {
+        val testAdapter = AgyAdapter(interKeyDelayMs = 0L)
+        testAdapter.sendPrompt(ByteArrayOutputStream(), "check git")
+
+        val screenLines = agyFourOptionScreen()
+        val event = testAdapter.onScreenUpdated(screenLines, idleMs = 1000)
+        assertTrue(event is AdapterEvent.PermissionRequired)
+
+        val perm = event as AdapterEvent.PermissionRequired
+        assertEquals("Command", perm.tool)
+        assertTrue(perm.command.contains("git -C"))
+        assertTrue(perm.command.contains("branch -a -vv && git -C..."))
+        assertEquals(4, perm.options.size)
+        assertEquals("Yes, run command", perm.options[0])
+        assertEquals(
+            "Yes, and always allow in this conversation for commands that start with 'git -C /data/data/com.termux/files/home/balearia-ia status -sb'",
+            perm.options[1]
+        )
+        assertEquals(
+            "Yes, and always allow for commands that start with 'git -C /data/data/com.termux/files/home/balearia-ia status -sb' (Persist to settings.json)",
+            perm.options[2]
+        )
+        assertEquals("No, cancel", perm.options[3])
+        assertEquals(AgentState.WAITING_PERMISSION, testAdapter.currentState)
+
+        // Duplicate screen update does not re-emit
+        assertNull(testAdapter.onScreenUpdated(screenLines, idleMs = 1500))
+
+        // Single cursor-prefixed numbered line is not treated as idle shell prompt
+        val workingAdapter = AgyAdapter(interKeyDelayMs = 0L)
+        workingAdapter.sendPrompt(ByteArrayOutputStream(), "list")
+        assertNull(workingAdapter.onScreenUpdated(listOf("> 1. Some list item"), idleMs = 1000))
+        assertEquals(AgentState.WORKING, workingAdapter.currentState)
+    }
+
+    @Test
+    fun testResolvePermissionSendsExactArrowKeysAndEnterForMenuOptions() {
+        val screenLines = agyFourOptionScreen()
+
+        val cases = listOf(
+            Triple(true, 0, "\r"),
+            Triple(true, 1, "\u001B[B\r"),
+            Triple(true, 2, "\u001B[B\u001B[B\r"),
+            Triple(false, 3, "\u001B[B\u001B[B\u001B[B\r"),
+            Triple(false, null, "\u001B[B\u001B[B\u001B[B\r")
+        )
+
+        for ((allow, optionIdx, expectedSeq) in cases) {
+            val testAdapter = AgyAdapter(interKeyDelayMs = 0L)
+            testAdapter.onScreenUpdated(screenLines, idleMs = 100)
+            val out = ByteArrayOutputStream()
+            testAdapter.resolvePermission(out, allow = allow, optionIndex = optionIdx)
+            assertEquals(expectedSeq, out.toString(Charsets.UTF_8.name()))
+            assertEquals(AgentState.WORKING, testAdapter.currentState)
+        }
+
+        // When cursor is already on option 3 (index 2), picking option 1 (index 0) sends two Up arrows + CR
+        val movedCursorScreen = listOf(
+            "Command",
+            "Requesting permission for:",
+            "ls",
+            "Run this command?",
+            "  1. Yes, run command",
+            "  2. Yes, and always allow in this conversation",
+            "> 3. Yes, and always allow",
+            "  4. No, cancel"
+        )
+        val upAdapter = AgyAdapter(interKeyDelayMs = 0L)
+        upAdapter.onScreenUpdated(movedCursorScreen, idleMs = 100)
+        val upOut = ByteArrayOutputStream()
+        upAdapter.resolvePermission(upOut, allow = true, optionIndex = 0)
+        assertEquals("\u001B[A\u001B[A\r", upOut.toString(Charsets.UTF_8.name()))
+    }
+
+    @Test
+    fun testStaleScreenSuppressionAndExternalDismissal() {
+        val testAdapter = AgyAdapter(interKeyDelayMs = 0L)
+        val screenLines = agyFourOptionScreen()
+
+        assertTrue(testAdapter.onScreenUpdated(screenLines, idleMs = 100) is AdapterEvent.PermissionRequired)
+        testAdapter.resolvePermission(ByteArrayOutputStream(), allow = true, optionIndex = 1)
+        assertEquals(AgentState.WORKING, testAdapter.currentState)
+
+        // Stale frame right after resolving does not re-trigger WAITING_PERMISSION
+        assertNull(testAdapter.onScreenUpdated(screenLines, idleMs = 200))
+        assertEquals(AgentState.WORKING, testAdapter.currentState)
+
+        // Screen clears, resetting suppression
+        assertNull(testAdapter.onScreenUpdated(listOf("Running command..."), idleMs = 100))
+
+        // Next permission request can emit again
+        assertTrue(testAdapter.onScreenUpdated(screenLines, idleMs = 100) is AdapterEvent.PermissionRequired)
+        assertEquals(AgentState.WAITING_PERMISSION, testAdapter.currentState)
+
+        // External dismissal from Terminal emits StateChanged(WORKING)
+        val dismissedEvent = testAdapter.onScreenUpdated(listOf("Running command..."), idleMs = 100)
+        assertEquals(AdapterEvent.StateChanged(AgentState.WORKING), dismissedEvent)
+        assertEquals(AgentState.WORKING, testAdapter.currentState)
+    }
+
+    @Test
+    fun testDoesNotMisdetectPlainNumberedListAsPermission() {
+        val testAdapter = AgyAdapter(interKeyDelayMs = 0L)
+        testAdapter.sendPrompt(ByteArrayOutputStream(), "steps")
+
+        val listScreen = listOf(
+            "Pasos recomendados:",
+            "1. Paso uno",
+            "2. Paso dos",
+            "3. Paso tres"
+        )
+        assertNull(testAdapter.onScreenUpdated(listScreen, idleMs = 500))
+        assertEquals(AgentState.WORKING, testAdapter.currentState)
+    }
+
+    private fun agyFourOptionScreen(): List<String> = listOf(
+        "ought for 8s, 716 tokens",
+        "",
+        "  You are already inside agy in",
+        "  /data/data/com.termux/files/home/balearia-",
+        "  ia. That looks like a pasted launch command",
+        "Command",
+        "────────────────────────────────────────────────",
+        "",
+        "Requesting permission for:",
+        "   git -C",
+        "/data/data/com.termux/files/home/balearia-",
+        "ia",
+        "status -sb && git -C",
+        "/data/data/com.termux/files/home/balearia-",
+        "ia",
+        "branch -a -vv && git -C...",
+        "",
+        "Run this command?",
+        "> 1. Yes, run command",
+        "  2. Yes, and always allow in this conversation",
+        "for commands that start with 'git -C",
+        "/data/data/com.termux/files/home/balearia-ia",
+        "status -sb'",
+        "  3. Yes, and always allow for commands that",
+        "start with 'git -C",
+        "/data/data/com.termux/files/home/balearia-ia",
+        "status -sb' (Persist to settings.json)",
+        "  4. No, cancel"
+    )
 }

@@ -324,6 +324,59 @@ class MainActivityE2ETest {
     }
 
     @Test
+    fun chatRendersFourAgyPermissionOptionsAndDispatchesSelectedIndex() {
+        FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
+            ActivityScenario.launch(MainActivity::class.java).use {
+                drainStartedServices()
+
+                val connectState = connectTestServer(server.port)
+                assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
+
+                composeRule.onNodeWithText("Google Antigravity CLI").assertIsDisplayed()
+                composeRule.onNodeWithTag("chat_input_field").performTextInput("check git")
+                composeRule.onNodeWithTag("chat_send_button").performClick()
+
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    SshSessionManager.agentState.value == com.termux.agent.adapter.AgentState.WORKING
+                }
+
+                server.sendOutput(
+                    "\r\nCommand\r\n────────────────────────────────────────────────\r\n" +
+                        "Requesting permission for:\r\n   git status -sb\r\n\r\nRun this command?\r\n" +
+                        "> 1. Yes, run command\r\n" +
+                        "  2. Yes, and always allow in this conversation\r\n" +
+                        "  3. Yes, and always allow (Persist to settings.json)\r\n" +
+                        "  4. No, cancel\r\n"
+                )
+
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    composeRule.onAllNodesWithTag("permission_request_card")
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
+                }
+
+                composeRule.onNodeWithTag("permission_option_0").performScrollTo().assertIsDisplayed()
+                composeRule.onNodeWithTag("permission_option_1").performScrollTo().assertIsDisplayed()
+                composeRule.onNodeWithTag("permission_option_2").performScrollTo().assertIsDisplayed()
+                composeRule.onNodeWithTag("permission_option_3").performScrollTo().assertIsDisplayed()
+                composeRule.onNodeWithText("1. Yes, run command").assertIsDisplayed()
+                composeRule.onNodeWithText("4. No, cancel").assertIsDisplayed()
+
+                composeRule.onNodeWithTag("permission_option_3").performClick()
+                pumpStartedServices()
+
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    Shadows.shadowOf(Looper.getMainLooper()).idle()
+                    composeRule.onAllNodesWithTag("permission_request_card")
+                        .fetchSemanticsNodes()
+                        .isEmpty() &&
+                        server.receivedRawString().contains("\u001B[B\u001B[B\u001B[B\r")
+                }
+            }
+        }
+    }
+
+    @Test
     fun chatActionsOverflowMenuLaunchesAgentAndClearsMessages() {
         FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
             ActivityScenario.launch(MainActivity::class.java).use {

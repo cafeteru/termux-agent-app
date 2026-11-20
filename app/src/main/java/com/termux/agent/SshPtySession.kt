@@ -295,6 +295,9 @@ class SshPtySession {
 
         return try {
             _activeAdapter.value.resolvePermission(activeOutput, allow, optionIndex)
+            if (_adapterEvent.value is AdapterEvent.PermissionRequired) {
+                _adapterEvent.value = null
+            }
             _agentState.value = _activeAdapter.value.currentState
             true
         } catch (_: Exception) {
