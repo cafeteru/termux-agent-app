@@ -144,6 +144,11 @@ enum class AppTab(val title: String) {
     TERMINAL("Terminal")
 }
 
+enum class MainScreen {
+    MAIN,
+    CONFIG
+}
+
 @Composable
 fun StatusScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -156,6 +161,7 @@ fun StatusScreen(modifier: Modifier = Modifier) {
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
     var feedbackMessage by remember { mutableStateOf<String?>(null) }
     var validationError by rememberSaveable { mutableStateOf<String?>(null) }
+    var currentScreen by rememberSaveable { mutableStateOf(MainScreen.MAIN) }
 
     val sessionState by SshSessionManager.connectionState.collectAsState()
     val ptyOutput by SshSessionManager.ptyOutput.collectAsState()
@@ -172,8 +178,12 @@ fun StatusScreen(modifier: Modifier = Modifier) {
         }
     }
 
-    BackHandler(enabled = drawerState.isOpen) {
-        scope.launch { drawerState.close() }
+    BackHandler(enabled = drawerState.isOpen || currentScreen == MainScreen.CONFIG) {
+        if (drawerState.isOpen) {
+            scope.launch { drawerState.close() }
+        } else {
+            currentScreen = MainScreen.MAIN
+        }
     }
 
     ModalNavigationDrawer(
@@ -181,19 +191,40 @@ fun StatusScreen(modifier: Modifier = Modifier) {
         modifier = modifier,
         drawerContent = {
             ModalDrawerSheet {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .imePadding()
-                        .verticalScroll(rememberScrollState())
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+                DrawerOptionsMenu(
+                    onSelectConfig = {
+                        currentScreen = MainScreen.CONFIG
+                        scope.launch { drawerState.close() }
+                    },
+                    onCloseDrawer = {
+                        scope.launch { drawerState.close() }
+                    }
+                )
+            }
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .safeDrawingPadding()
+        ) {
+            when (currentScreen) {
+                MainScreen.CONFIG -> {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        IconButton(
+                            onClick = { currentScreen = MainScreen.MAIN }
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                contentDescription = "Volver a la pantalla principal"
+                            )
+                        }
                         Text(
                             text = "Configuración SSH",
                             style = MaterialTheme.typography.titleLarge,
@@ -201,27 +232,17 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                                 .weight(1f)
                                 .semantics { heading() }
                         )
-                        IconButton(
-                            onClick = { scope.launch { drawerState.close() } }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Cerrar configuración SSH"
-                            )
-                        }
                     }
-                    Text(
-                        text = "Target: ${config.host}:${portText.ifBlank { config.port.toString() }}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+
                     HorizontalDivider()
 
-                    SshConfigMenuCard(
+                    SshConfigScreenContent(
                         config = config,
                         portText = portText,
                         passwordVisible = passwordVisible,
                         feedbackMessage = feedbackMessage,
+                        validationError = validationError,
+                        sessionState = sessionState,
                         onSelectAuthMethod = { method ->
                             config = config.copy(authMethod = method)
                             feedbackMessage = null
@@ -264,26 +285,11 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                             SshConfigStore.save(context, updated)
                             feedbackMessage = "Nueva clave SSH generada. Copia el comando en Termux."
                         },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    validationError?.let { error ->
-                        SelectionContainer {
-                            Text(
-                                text = error,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
-                            )
-                        }
-                    }
-
-                    Button(
-                        onClick = {
+                        onSaveAndConnect = {
                             val parsedPort = portText.trim().toIntOrNull()
                             if (parsedPort == null || parsedPort !in 1..65535) {
                                 validationError = "Puerto SSH inválido. Introduce un valor entre 1 y 65535."
-                                return@Button
+                                return@SshConfigScreenContent
                             }
                             validationError = null
                             val normalized = config.copy(
@@ -293,164 +299,320 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                             config = normalized
                             SshConfigStore.save(context, normalized)
                             AgentForegroundService.connect(context)
-                            scope.launch { drawerState.close() }
+                            currentScreen = MainScreen.MAIN
                         },
-                        enabled = sessionState !is ConnectionState.Checking,
-                        modifier = Modifier.fillMaxWidth()
+                        onDisconnect = {
+                            AgentForegroundService.disconnect(context)
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                MainScreen.MAIN -> {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(text = "Guardar y Conectar")
+                        IconButton(
+                            onClick = { scope.launch { drawerState.open() } }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Menu,
+                                contentDescription = "Abrir menú"
+                            )
+                        }
+                        Text(
+                            text = "Termux Agent",
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (sessionState !is ConnectionState.Disconnected) {
+                            IconButton(
+                                onClick = { AgentForegroundService.disconnect(context) }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Desconectar SSH",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
                     }
 
-                    if (sessionState !is ConnectionState.Disconnected) {
-                        OutlinedButton(
-                            onClick = {
-                                AgentForegroundService.disconnect(context)
-                                scope.launch { drawerState.close() }
-                            },
+                    HorizontalDivider()
+
+                    if (sessionState is ConnectionState.Connected) {
+                        TabRow(
+                            selectedTabIndex = selectedTab.ordinal,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(text = "Desconectar")
+                            AppTab.values().forEach { tab ->
+                                Tab(
+                                    selected = selectedTab == tab,
+                                    onClick = { selectedTab = tab },
+                                    text = { Text(tab.title) }
+                                )
+                            }
+                        }
+
+                        when (selectedTab) {
+                            AppTab.CHAT -> {
+                                ChatScreen(
+                                    activeAdapter = activeAdapter,
+                                    agentState = agentState,
+                                    adapterEvent = adapterEvent,
+                                    messages = chatMessages,
+                                    onSelectAgent = { id ->
+                                        SshSessionManager.setActiveAdapterById(id)
+                                    },
+                                    onLaunchAgent = {
+                                        SshSessionManager.launchActiveAgentAsync()
+                                    },
+                                    onSendPrompt = { prompt ->
+                                        SshSessionManager.sendPromptAsync(prompt)
+                                    },
+                                    onResolvePermission = { allow ->
+                                        AgentForegroundService.resolvePermission(context, allow)
+                                    },
+                                    onClearChat = {
+                                        SshSessionManager.clearChat()
+                                    },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                            AppTab.TERMINAL -> {
+                                PtyTerminalCard(
+                                    ptyOutput = ptyOutput,
+                                    currentCommandLine = currentCommandLine,
+                                    onSendCommand = { command ->
+                                        AgentForegroundService.sendCommand(context, command)
+                                    },
+                                    onSendRaw = { raw ->
+                                        AgentForegroundService.sendRaw(context, raw)
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(8.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            ConnectionStatusBanner(state = sessionState)
+
+                            if (sessionState is ConnectionState.Error || sessionState is ConnectionState.Disconnected) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    FilledIconButton(
+                                        onClick = { currentScreen = MainScreen.CONFIG }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Settings,
+                                            contentDescription = "Configurar SSH"
+                                        )
+                                    }
+                                    OutlinedIconButton(
+                                        onClick = { AgentForegroundService.connect(context) }
+                                    ) {
+                                        val isDisconnected = sessionState is ConnectionState.Disconnected
+                                        Icon(
+                                            imageVector = if (isDisconnected) {
+                                                Icons.Default.PlayArrow
+                                            } else {
+                                                Icons.Default.Refresh
+                                            },
+                                            contentDescription = if (isDisconnected) "Conectar" else "Reintentar"
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DrawerOptionsMenu(
+    onSelectConfig: () -> Unit,
+    onCloseDrawer: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Column(
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "Menú de opciones",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.semantics { heading() }
+                )
+                Text(
+                    text = "Termux Agent",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(
+                onClick = onCloseDrawer
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Cerrar menú"
+                )
+            }
+        }
+
+        HorizontalDivider()
+
+        Text(
+            text = "Opciones",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        Card(
+            onClick = onSelectConfig,
             modifier = Modifier
-                .fillMaxSize()
-                .safeDrawingPadding()
+                .fillMaxWidth()
+                .testTag("drawer_option_config"),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+            )
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                IconButton(
-                    onClick = { scope.launch { drawerState.open() } }
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Menu,
-                        contentDescription = "Abrir configuración SSH"
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Configuración",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = "Conexión SSH y ajustes de Termux",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Text(
-                    text = "Termux Agent",
-                    style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.weight(1f)
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = "Abrir configuración",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                if (sessionState !is ConnectionState.Disconnected) {
-                    IconButton(
-                        onClick = { AgentForegroundService.disconnect(context) }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Desconectar SSH",
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
             }
+        }
+    }
+}
 
-            HorizontalDivider()
+@Composable
+private fun SshConfigScreenContent(
+    config: SshConfig,
+    portText: String,
+    passwordVisible: Boolean,
+    feedbackMessage: String?,
+    validationError: String?,
+    sessionState: ConnectionState,
+    onSelectAuthMethod: (AuthMethod) -> Unit,
+    onUsernameChange: (String) -> Unit,
+    onPortChange: (String) -> Unit,
+    onPasswordChange: (String) -> Unit,
+    onTogglePasswordVisibility: () -> Unit,
+    onCopySetupCommand: () -> Unit,
+    onCopyPublicKey: () -> Unit,
+    onRegenerateKey: () -> Unit,
+    onSaveAndConnect: () -> Unit,
+    onDisconnect: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = "Target: ${config.host}:${portText.ifBlank { config.port.toString() }}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        HorizontalDivider()
 
-            if (sessionState is ConnectionState.Connected) {
-                TabRow(
-                    selectedTabIndex = selectedTab.ordinal,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    AppTab.values().forEach { tab ->
-                        Tab(
-                            selected = selectedTab == tab,
-                            onClick = { selectedTab = tab },
-                            text = { Text(tab.title) }
-                        )
-                    }
-                }
+        SshConfigMenuCard(
+            config = config,
+            portText = portText,
+            passwordVisible = passwordVisible,
+            feedbackMessage = feedbackMessage,
+            onSelectAuthMethod = onSelectAuthMethod,
+            onUsernameChange = onUsernameChange,
+            onPortChange = onPortChange,
+            onPasswordChange = onPasswordChange,
+            onTogglePasswordVisibility = onTogglePasswordVisibility,
+            onCopySetupCommand = onCopySetupCommand,
+            onCopyPublicKey = onCopyPublicKey,
+            onRegenerateKey = onRegenerateKey,
+            modifier = Modifier.fillMaxWidth()
+        )
 
-                when (selectedTab) {
-                    AppTab.CHAT -> {
-                        ChatScreen(
-                            activeAdapter = activeAdapter,
-                            agentState = agentState,
-                            adapterEvent = adapterEvent,
-                            messages = chatMessages,
-                            onSelectAgent = { id ->
-                                SshSessionManager.setActiveAdapterById(id)
-                            },
-                            onLaunchAgent = {
-                                SshSessionManager.launchActiveAgentAsync()
-                            },
-                            onSendPrompt = { prompt ->
-                                SshSessionManager.sendPromptAsync(prompt)
-                            },
-                            onResolvePermission = { allow ->
-                                AgentForegroundService.resolvePermission(context, allow)
-                            },
-                            onClearChat = {
-                                SshSessionManager.clearChat()
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                    AppTab.TERMINAL -> {
-                        PtyTerminalCard(
-                            ptyOutput = ptyOutput,
-                            currentCommandLine = currentCommandLine,
-                            onSendCommand = { command ->
-                                AgentForegroundService.sendCommand(context, command)
-                            },
-                            onSendRaw = { raw ->
-                                AgentForegroundService.sendRaw(context, raw)
-                            },
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(8.dp)
-                        )
-                    }
-                }
-            } else {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    ConnectionStatusBanner(state = sessionState)
+        validationError?.let { error ->
+            SelectionContainer {
+                Text(
+                    text = error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+                )
+            }
+        }
 
-                    if (sessionState is ConnectionState.Error || sessionState is ConnectionState.Disconnected) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            FilledIconButton(
-                                onClick = { scope.launch { drawerState.open() } }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Settings,
-                                    contentDescription = "Configurar SSH"
-                                )
-                            }
-                            OutlinedIconButton(
-                                onClick = { AgentForegroundService.connect(context) }
-                            ) {
-                                val isDisconnected = sessionState is ConnectionState.Disconnected
-                                Icon(
-                                    imageVector = if (isDisconnected) {
-                                        Icons.Default.PlayArrow
-                                    } else {
-                                        Icons.Default.Refresh
-                                    },
-                                    contentDescription = if (isDisconnected) "Conectar" else "Reintentar"
-                                )
-                            }
-                        }
-                    }
-                }
+        Button(
+            onClick = onSaveAndConnect,
+            enabled = sessionState !is ConnectionState.Checking,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(text = "Guardar y Conectar")
+        }
+
+        if (sessionState !is ConnectionState.Disconnected) {
+            OutlinedButton(
+                onClick = onDisconnect,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(text = "Desconectar")
             }
         }
     }

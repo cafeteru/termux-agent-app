@@ -69,10 +69,12 @@ class MainActivityE2ETest {
                     // Intentionally drained before explicitly testing drawer and connection flow.
                 }
 
-                composeRule.onNodeWithContentDescription("Abrir configuración SSH").performClick()
+                composeRule.onNodeWithContentDescription("Abrir menú").performClick()
+                composeRule.onNodeWithText("Menú de opciones").assertIsDisplayed()
+                composeRule.onNodeWithText("Configuración").performClick()
                 composeRule.onNodeWithText("Configuración SSH").assertIsDisplayed()
-                composeRule.onNodeWithContentDescription("Cerrar configuración SSH").assertIsDisplayed()
-                composeRule.onNodeWithContentDescription("Cerrar configuración SSH").performClick()
+                composeRule.onNodeWithContentDescription("Volver a la pantalla principal").assertIsDisplayed()
+                composeRule.onNodeWithContentDescription("Volver a la pantalla principal").performClick()
 
                 val connectState = SshSessionManager.connect(
                     isTermuxInstalled = {
@@ -308,13 +310,47 @@ class MainActivityE2ETest {
     }
 
     @Test
+    fun drawerNavigationBetweenOptionsMenuAndSshConfig() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            drainStartedServices()
+
+            // 1. Open drawer -> should show options menu with "Configuración"
+            composeRule.onNodeWithContentDescription("Abrir menú").performClick()
+            composeRule.waitForIdle()
+            composeRule.onNodeWithText("Menú de opciones").assertIsDisplayed()
+            composeRule.onNodeWithText("Configuración").assertIsDisplayed()
+
+            // 2. Click "Configuración" -> drawer closes and main screen transitions to SSH config
+            composeRule.onNodeWithText("Configuración").performSemanticsAction(SemanticsActions.OnClick)
+            composeRule.waitForIdle()
+            composeRule.onNodeWithText("Configuración SSH").assertIsDisplayed()
+            composeRule.onNodeWithContentDescription("Volver a la pantalla principal").assertIsDisplayed()
+
+            // 3. Click back arrow -> returns to main screen
+            composeRule.onNodeWithContentDescription("Volver a la pantalla principal").performClick()
+            composeRule.waitForIdle()
+            composeRule.onNodeWithText("Termux Agent").assertIsDisplayed()
+
+            // 4. Test gear button directly opens config screen
+            composeRule.onNodeWithContentDescription("Configurar SSH").performClick()
+            composeRule.waitForIdle()
+            composeRule.onNodeWithText("Configuración SSH").assertIsDisplayed()
+            composeRule.onNodeWithContentDescription("Volver a la pantalla principal").performClick()
+            composeRule.waitForIdle()
+            composeRule.onNodeWithText("Termux Agent").assertIsDisplayed()
+        }
+    }
+
+    @Test
     fun drawerFormValidationAuthSwitchAndPersistence() {
         ActivityScenario.launch(MainActivity::class.java).use {
             drainStartedServices()
 
-            composeRule.onNodeWithContentDescription("Abrir configuración SSH").performClick()
+            composeRule.onNodeWithContentDescription("Abrir menú").performClick()
             // Robolectric LEGACY graphics routes touches inside the open drawer to its scrim, closing it;
             // drive drawer controls via semantics actions (NATIVE mode is unsupported on aarch64 Termux).
+            composeRule.waitForIdle()
+            composeRule.onNodeWithText("Configuración").performSemanticsAction(SemanticsActions.OnClick)
             composeRule.waitForIdle()
             composeRule.onNodeWithContentDescription("Mostrar contraseña").performSemanticsAction(SemanticsActions.OnClick)
             composeRule.onNodeWithContentDescription("Ocultar contraseña").assertIsDisplayed()
