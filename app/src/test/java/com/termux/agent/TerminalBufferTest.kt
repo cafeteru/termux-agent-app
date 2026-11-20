@@ -136,4 +136,18 @@ class TerminalBufferTest {
         assertEquals("line2", lines[1])
         assertEquals("line3", lines[2])
     }
+
+    @Test
+    fun eraseInDisplayZeroAndCursorColumnEscapeClearOldDialogLines() {
+        val buffer = TerminalBuffer()
+        buffer.feed("Header\nRun this command?\n> 1. Yes\n  2. No")
+        buffer.feed("\u001B[2;1H\u001B[0JDone")
+        assertEquals("Header\nDone", buffer.renderPlainText())
+
+        buffer.feed("\u001B[1GOK\u001B[K")
+        assertEquals("Header\nOK", buffer.renderPlainText())
+
+        buffer.feed("\nLine2\u001B[1F\u001B[J")
+        assertEquals("Header\n", buffer.renderPlainText())
+    }
 }

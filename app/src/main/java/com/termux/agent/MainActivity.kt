@@ -394,8 +394,8 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                                     onSendPrompt = { prompt ->
                                         SshSessionManager.sendPromptAsync(prompt)
                                     },
-                                    onResolvePermission = { allow ->
-                                        AgentForegroundService.resolvePermission(context, allow)
+                                    onResolvePermission = { allow, optionIndex ->
+                                        AgentForegroundService.resolvePermission(context, allow, optionIndex)
                                     },
                                     onClearChat = {
                                         SshSessionManager.clearChat()

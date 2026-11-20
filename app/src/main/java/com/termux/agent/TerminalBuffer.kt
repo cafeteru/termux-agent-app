@@ -161,11 +161,30 @@ class TerminalBuffer(private val maxLines: Int = 1_000) {
             // Erase in Display: ED
             'J' -> {
                 val mode = param.toIntOrNull() ?: 0
-                if (mode == 2 || mode == 3) {
-                    lines.clear()
-                    lines.add(ArrayList())
-                    cursorRow = 0
-                    cursorCol = 0
+                when (mode) {
+                    0 -> {
+                        if (cursorCol < currentLine.size) {
+                            currentLine.subList(cursorCol, currentLine.size).clear()
+                        }
+                        if (cursorRow + 1 < lines.size) {
+                            lines.subList(cursorRow + 1, lines.size).clear()
+                        }
+                    }
+                    1 -> {
+                        for (r in 0 until minOf(cursorRow, lines.size)) {
+                            lines[r].clear()
+                        }
+                        val limit = minOf(cursorCol + 1, currentLine.size)
+                        for (idx in 0 until limit) {
+                            currentLine[idx] = StyledChar(' ', currentSgr)
+                        }
+                    }
+                    2, 3 -> {
+                        lines.clear()
+                        lines.add(ArrayList())
+                        cursorRow = 0
+                        cursorCol = 0
+                    }
                 }
             }
 
@@ -210,6 +229,27 @@ class TerminalBuffer(private val maxLines: Int = 1_000) {
                 val count = param.toIntOrNull() ?: 1
                 cursorRow += count
                 ensureLineExists(cursorRow)
+            }
+
+            // Cursor Next Line: CNL
+            'E' -> {
+                val count = param.toIntOrNull() ?: 1
+                cursorRow += count
+                cursorCol = 0
+                ensureLineExists(cursorRow)
+            }
+
+            // Cursor Previous Line: CPL
+            'F' -> {
+                val count = param.toIntOrNull() ?: 1
+                cursorRow = maxOf(0, cursorRow - count)
+                cursorCol = 0
+            }
+
+            // Cursor Horizontal Absolute: CHA
+            'G' -> {
+                val col = param.toIntOrNull() ?: 1
+                cursorCol = maxOf(0, col - 1)
             }
 
             // Cursor Position: CUP / HVP

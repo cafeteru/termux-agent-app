@@ -354,6 +354,57 @@ class SshPtyIntegrationTest {
         }
     }
 
+    @Test
+    fun agyFourOptionPermissionMenuRoundTripAndSelection() {
+        FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
+            val state = SshSessionManager.connect(
+                isTermuxInstalled = { true },
+                config = SshConfig(
+                    host = "127.0.0.1",
+                    port = server.port,
+                    username = "termux",
+                    authMethod = AuthMethod.PASSWORD,
+                    password = "secret"
+                ),
+                timeoutMs = 5_000
+            )
+            assertTrue("Expected Connected but got $state", state is ConnectionState.Connected)
+
+            awaitCondition(timeoutMs = 5_000) {
+                SshSessionManager.ptyOutput.value.contains(":~$ ")
+            }
+
+            SshSessionManager.setActiveAdapterById("agy")
+            assertTrue(SshSessionManager.sendPrompt("check git"))
+            assertEquals(com.termux.agent.adapter.AgentState.WORKING, SshSessionManager.agentState.value)
+
+            server.sendOutput(
+                "\r\nCommand\r\n────────────────────────────────────────────────\r\n" +
+                    "Requesting permission for:\r\n   git status -sb\r\n\r\nRun this command?\r\n" +
+                    "> 1. Yes, run command\r\n" +
+                    "  2. Yes, and always allow in this conversation\r\n" +
+                    "  3. Yes, and always allow (Persist to settings.json)\r\n" +
+                    "  4. No, cancel\r\n"
+            )
+
+            awaitCondition(timeoutMs = 5_000) {
+                SshSessionManager.agentState.value == com.termux.agent.adapter.AgentState.WAITING_PERMISSION
+            }
+            val perm = SshSessionManager.adapterEvent.value as? com.termux.agent.adapter.AdapterEvent.PermissionRequired
+            assertTrue(perm != null)
+            assertEquals("Command", perm!!.tool)
+            assertEquals(4, perm.options.size)
+
+            assertTrue(SshSessionManager.resolvePermission(allow = true, optionIndex = 2))
+            assertEquals(null, SshSessionManager.adapterEvent.value)
+            assertEquals(com.termux.agent.adapter.AgentState.WORKING, SshSessionManager.agentState.value)
+
+            awaitCondition(timeoutMs = 5_000) {
+                server.receivedRawString().contains("\u001B[B\u001B[B\r")
+            }
+        }
+    }
+
     private fun awaitCondition(timeoutMs: Long, condition: () -> Boolean) {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
