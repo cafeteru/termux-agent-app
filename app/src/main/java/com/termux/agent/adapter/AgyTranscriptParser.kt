@@ -10,6 +10,10 @@ data class ChatMessage(
 
 object AgyTranscriptParser {
 
+    internal const val READ_LATEST_TRANSCRIPT_COMMAND =
+        "sh -c 'f=\$(ls -t \"\$HOME\"/.gemini/antigravity-cli/brain/*/.system_generated/logs/transcript.jsonl 2>/dev/null | head -n 1); " +
+            "if [ -n \"\$f\" ] && [ -r \"\$f\" ]; then tail -n 120 \"\$f\"; fi'"
+
     fun parseLine(jsonLine: String): ChatMessage? {
         val trimmed = jsonLine.trim()
         if (trimmed.isEmpty() || !trimmed.startsWith("{") || !trimmed.endsWith("}")) return null
@@ -27,6 +31,7 @@ object AgyTranscriptParser {
         return when {
             type == "USER_INPUT" || source == "USER_EXPLICIT" -> {
                 val cleanPrompt = extractUserPrompt(rawContent)
+                if (cleanPrompt.isBlank()) return null
                 ChatMessage(
                     stepIndex = stepIndex,
                     sender = "user",
@@ -34,7 +39,7 @@ object AgyTranscriptParser {
                     timestamp = createdAt
                 )
             }
-            type == "PLANNER_RESPONSE" || source == "MODEL" -> {
+            type == "PLANNER_RESPONSE" || (source == "MODEL" && type.isEmpty()) -> {
                 val toolCallsList = extractToolCalls(trimmed)
                 val thinking = extractJsonString(trimmed, "thinking") ?: ""
 
@@ -45,6 +50,7 @@ object AgyTranscriptParser {
                 } else {
                     thinking
                 }
+                if (messageContent.isBlank() && toolCallsList.isEmpty()) return null
 
                 ChatMessage(
                     stepIndex = stepIndex,

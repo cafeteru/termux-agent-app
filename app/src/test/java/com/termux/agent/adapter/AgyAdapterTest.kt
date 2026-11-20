@@ -108,4 +108,27 @@ class AgyAdapterTest {
         assertEquals(AgentState.IDLE, (idleEvent as AdapterEvent.StateChanged).state)
         assertEquals(AgentState.IDLE, adapter.currentState)
     }
+
+    @Test
+    fun testDetectTurnCompletedWhenPromptHasStatusFooterBelowIt() {
+        adapter.sendPrompt(ByteArrayOutputStream(), "hola")
+        assertEquals(AgentState.WORKING, adapter.currentState)
+
+        val screenLines = listOf(
+            "Sí, puedo escribir y responder en el chat sin problemas.",
+            "────────────────────────────────────────",
+            "❯ ",
+            "────────────────────────────────────────",
+            "? for shortcuts"
+        )
+
+        val completed = adapter.onScreenUpdated(screenLines, idleMs = 600)
+        assertNotNull(completed)
+        assertTrue(completed is AdapterEvent.TurnCompleted)
+        assertEquals(
+            "Sí, puedo escribir y responder en el chat sin problemas.",
+            (completed as AdapterEvent.TurnCompleted).summary
+        )
+        assertEquals(AgentState.COMPLETED, adapter.currentState)
+    }
 }

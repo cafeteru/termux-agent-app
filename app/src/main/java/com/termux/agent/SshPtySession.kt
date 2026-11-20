@@ -49,6 +49,7 @@ class SshPtySession {
     private val _chatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val chatMessages: StateFlow<List<ChatMessage>> = _chatMessages.asStateFlow()
 
+    @Volatile
     private var lastOutputTimestamp: Long = 0L
 
     private var session: Session? = null
@@ -56,6 +57,7 @@ class SshPtySession {
     private var inputStream: InputStream? = null
     private var outputStream: OutputStream? = null
     private var readerThread: Thread? = null
+    private var monitorThread: Thread? = null
     private var sessionGeneration: Long = 0L
 
     /**
@@ -106,6 +108,13 @@ class SshPtySession {
                 ) {
                     readPtyLoop(shellInput, currentGeneration)
                 }
+                monitorThread = thread(
+                    start = true,
+                    isDaemon = true,
+                    name = "termux-ssh-pty-monitor"
+                ) {
+                    monitorIdleAndTranscriptLoop(currentGeneration)
+                }
             }
 
             val serverBanner = openedSession.serverVersion ?: "SSH-2.0"
@@ -140,17 +149,42 @@ class SshPtySession {
         _chatMessages.value = emptyList()
     }
 
-    fun appendTranscriptLine(jsonLine: String) {
-        val parsed = AgyTranscriptParser.parseLine(jsonLine)
-        if (parsed != null) {
-            _chatMessages.update { list ->
-                if (list.none { it.stepIndex == parsed.stepIndex && it.sender == parsed.sender }) {
+    fun appendTranscriptLine(jsonLine: String): ChatMessage? {
+        val parsed = AgyTranscriptParser.parseLine(jsonLine) ?: return null
+        var insertedOrUpdated = false
+        _chatMessages.update { list ->
+            val existingByStep = if (parsed.stepIndex >= 0) {
+                list.indexOfFirst { it.stepIndex == parsed.stepIndex && it.sender == parsed.sender }
+            } else {
+                -1
+            }
+            when {
+                existingByStep >= 0 -> {
+                    if (list[existingByStep] != parsed) {
+                        insertedOrUpdated = true
+                        list.toMutableList().apply { set(existingByStep, parsed) }
+                    } else {
+                        list
+                    }
+                }
+                parsed.sender == "user" -> {
+                    val localDuplicateIdx = list.indexOfFirst {
+                        it.stepIndex < 0 && it.sender == "user" && it.content.trim() == parsed.content.trim()
+                    }
+                    if (localDuplicateIdx >= 0) {
+                        list.toMutableList().apply { set(localDuplicateIdx, parsed) }
+                    } else {
+                        insertedOrUpdated = true
+                        list + parsed
+                    }
+                }
+                else -> {
+                    insertedOrUpdated = true
                     list + parsed
-                } else {
-                    list
                 }
             }
         }
+        return if (insertedOrUpdated) parsed else null
     }
 
     fun launchActiveAgent(workspacePath: String = ""): Boolean {
@@ -239,7 +273,7 @@ class SshPtySession {
             _activeAdapter.value.sendPrompt(activeOutput, text)
             _agentState.value = _activeAdapter.value.currentState
             val userMsg = ChatMessage(
-                stepIndex = _chatMessages.value.size + 1,
+                stepIndex = -(_chatMessages.value.size + 1),
                 sender = "user",
                 content = text,
                 timestamp = currentTimestamp()
@@ -377,22 +411,115 @@ class SshPtySession {
 
                 val event = _activeAdapter.value.onScreenUpdated(screenLines, idleMs)
                 if (event != null) {
-                    _adapterEvent.value = event
-                    if (event is AdapterEvent.TurnCompleted && event.summary.isNotBlank()) {
-                        val agentMsg = ChatMessage(
-                            stepIndex = _chatMessages.value.size + 1,
-                            sender = "agent",
-                            content = event.summary,
-                            timestamp = currentTimestamp()
-                        )
-                        _chatMessages.update { it + agentMsg }
-                    }
+                    applyAdapterEvent(event)
                 }
                 _agentState.value = _activeAdapter.value.currentState
             }
         } catch (_: Exception) {
             // Only surface an error if disconnect() has not already invalidated this generation.
             handleRemoteTermination(generation)
+        }
+    }
+
+    private fun applyAdapterEvent(event: AdapterEvent) {
+        _adapterEvent.value = event
+        if (event is AdapterEvent.TurnCompleted && event.summary.isNotBlank()) {
+            _chatMessages.update { list ->
+                val lastAgent = list.lastOrNull { it.sender == "agent" }
+                if (lastAgent != null && lastAgent.content == event.summary) {
+                    list
+                } else {
+                    list + ChatMessage(
+                        stepIndex = -(list.size + 1),
+                        sender = "agent",
+                        content = event.summary,
+                        timestamp = currentTimestamp()
+                    )
+                }
+            }
+        }
+    }
+
+    private fun monitorIdleAndTranscriptLoop(generation: Long) {
+        var tick = 0
+        try {
+            while (true) {
+                Thread.sleep(300)
+                val isCurrent = synchronized(lock) {
+                    sessionGeneration == generation && session?.isConnected == true
+                }
+                if (!isCurrent) break
+
+                val lastTs = lastOutputTimestamp
+                if (lastTs > 0L) {
+                    val idleMs = System.currentTimeMillis() - lastTs
+                    val screenLines = synchronized(lock) { terminalBuffer.getLines() }
+                    val event = _activeAdapter.value.onScreenUpdated(screenLines, idleMs)
+                    if (event != null) {
+                        applyAdapterEvent(event)
+                    }
+                    _agentState.value = _activeAdapter.value.currentState
+                }
+
+                tick++
+                if (_activeAdapter.value.id == "agy" && tick % 3 == 0) {
+                    syncLatestAgyTranscript(generation)
+                }
+            }
+        } catch (_: InterruptedException) {
+            // Thread interrupted on disconnect.
+        } catch (_: Exception) {
+            // Best-effort background polling.
+        }
+    }
+
+    internal fun syncLatestAgyTranscript(
+        generation: Long = synchronized(lock) { sessionGeneration },
+        timeoutMs: Int = 2_000
+    ) {
+        val activeSession = synchronized(lock) {
+            if (sessionGeneration == generation) session?.takeIf { it.isConnected } else null
+        } ?: return
+
+        var exec: ChannelExec? = null
+        try {
+            exec = activeSession.openChannel("exec") as ChannelExec
+            exec.setCommand(AgyTranscriptParser.READ_LATEST_TRANSCRIPT_COMMAND)
+            val stdout = exec.inputStream
+            exec.connect(timeoutMs)
+
+            val outBuffer = ByteArrayOutputStream()
+            val chunk = ByteArray(4096)
+            val maxBytes = 256 * 1024
+            while (true) {
+                val read = stdout.read(chunk)
+                if (read < 0) break
+                if (read == 0) continue
+                val remaining = maxBytes - outBuffer.size()
+                if (remaining <= 0) break
+                outBuffer.write(chunk, 0, minOf(read, remaining))
+            }
+
+            val raw = String(outBuffer.toByteArray(), Charsets.UTF_8)
+            if (raw.isBlank()) return
+
+            var latestNewAgentReply: ChatMessage? = null
+            for (line in raw.lineSequence()) {
+                val added = appendTranscriptLine(line)
+                if (added != null && added.sender == "agent" && added.toolCalls.isEmpty() && added.content.isNotBlank()) {
+                    latestNewAgentReply = added
+                }
+            }
+
+            if (latestNewAgentReply != null && _activeAdapter.value.currentState == AgentState.WORKING) {
+                _activeAdapter.value.markCompleted()
+                _adapterEvent.value = AdapterEvent.TurnCompleted(latestNewAgentReply.content)
+                _agentState.value = _activeAdapter.value.currentState
+            }
+        } catch (_: Exception) {
+            // Ignore transient exec errors so the PTY session is never disrupted.
+        } finally {
+            runCatching { exec?.disconnect() }
         }
     }
 
@@ -407,16 +534,18 @@ class SshPtySession {
     }
 
     private fun clearSessionRefsLocked(): SessionResources {
-        val resources = SessionResources(inputStream, outputStream, channel, session)
+        val resources = SessionResources(inputStream, outputStream, channel, session, monitorThread)
         inputStream = null
         outputStream = null
         channel = null
         session = null
         readerThread = null
+        monitorThread = null
         return resources
     }
 
     private fun closeResources(resources: SessionResources) {
+        runCatching { resources.monitor?.interrupt() }
         runCatching { resources.input?.close() }
         runCatching { resources.output?.close() }
         runCatching { resources.channel?.disconnect() }
@@ -432,7 +561,8 @@ class SshPtySession {
         val input: InputStream?,
         val output: OutputStream?,
         val channel: ChannelShell?,
-        val session: Session?
+        val session: Session?,
+        val monitor: Thread? = null
     )
 }
 

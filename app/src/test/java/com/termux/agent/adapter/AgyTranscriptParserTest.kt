@@ -39,4 +39,10 @@ class AgyTranscriptParserTest {
         assertNull(AgyTranscriptParser.parseLine("not json"))
         assertNull(AgyTranscriptParser.parseLine("""{"foo":"bar"}"""))
     }
+
+    @Test
+    fun testParseIgnoresGenericToolOutputLinesWithSourceModel() {
+        val genericLine = """{"step_index":6,"source":"MODEL","type":"GENERIC","status":"DONE","created_at":"2026-11-20T20:33:59Z","content":"Command exited with code 0.\n\nCommand output:\nfile.txt"}"""
+        assertNull(AgyTranscriptParser.parseLine(genericLine))
+    }
 }

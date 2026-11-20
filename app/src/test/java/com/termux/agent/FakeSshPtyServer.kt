@@ -29,6 +29,8 @@ class FakeSshPtyServer(
     val receivedCommands = CopyOnWriteArrayList<String>()
     private val rawBytes = ByteArrayOutputStream()
     @Volatile
+    var fakeTranscriptJsonl: String = ""
+    @Volatile
     private var activeCommand: FakePtyCommand? = null
 
     private val server: SshServer = SshServer.setUpDefaultServer().apply {
@@ -48,7 +50,7 @@ class FakeSshPtyServer(
             FakePtyCommand(receivedCommands, rawBytes).also { activeCommand = it }
         }
         commandFactory = CommandFactory { _, command ->
-            FakeExecCommand(command, fakeHome, fakeDirectories)
+            FakeExecCommand(command, fakeHome, fakeDirectories) { fakeTranscriptJsonl }
         }
         start()
     }
@@ -164,7 +166,8 @@ class FakeSshPtyServer(
     private class FakeExecCommand(
         private val command: String,
         private val fakeHome: String,
-        private val fakeDirectories: Map<String, List<String>>
+        private val fakeDirectories: Map<String, List<String>>,
+        private val transcriptProvider: () -> String = { "" }
     ) : Command {
         private var input: InputStream? = null
         private var output: OutputStream? = null
@@ -191,6 +194,16 @@ class FakeSshPtyServer(
 
             worker = thread(start = true, isDaemon = true, name = "fake-ssh-exec") {
                 try {
+                    if (command == com.termux.agent.adapter.AgyTranscriptParser.READ_LATEST_TRANSCRIPT_COMMAND) {
+                        val transcript = transcriptProvider()
+                        if (transcript.isNotEmpty()) {
+                            out.write(transcript.toByteArray(Charsets.UTF_8))
+                            out.flush()
+                        }
+                        exitCallback?.onExit(0)
+                        return@thread
+                    }
+
                     val lineBytes = ByteArrayOutputStream()
                     while (true) {
                         val b = inp.read()
