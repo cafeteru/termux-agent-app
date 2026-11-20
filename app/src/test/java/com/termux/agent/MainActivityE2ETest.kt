@@ -73,8 +73,8 @@ class MainActivityE2ETest {
                 composeRule.onNodeWithText("Menú de opciones").assertIsDisplayed()
                 composeRule.onNodeWithText("Configuración").performClick()
                 composeRule.onNodeWithText("Configuración SSH").assertIsDisplayed()
-                composeRule.onNodeWithContentDescription("Cerrar configuración SSH").assertIsDisplayed()
-                composeRule.onNodeWithContentDescription("Cerrar configuración SSH").performClick()
+                composeRule.onNodeWithContentDescription("Volver a la pantalla principal").assertIsDisplayed()
+                composeRule.onNodeWithContentDescription("Volver a la pantalla principal").performClick()
 
                 val connectState = SshSessionManager.connect(
                     isTermuxInstalled = {
@@ -320,20 +320,24 @@ class MainActivityE2ETest {
             composeRule.onNodeWithText("Menú de opciones").assertIsDisplayed()
             composeRule.onNodeWithText("Configuración").assertIsDisplayed()
 
-            // 2. Click "Configuración" -> transitions to SSH config
+            // 2. Click "Configuración" -> drawer closes and main screen transitions to SSH config
             composeRule.onNodeWithText("Configuración").performSemanticsAction(SemanticsActions.OnClick)
             composeRule.waitForIdle()
             composeRule.onNodeWithText("Configuración SSH").assertIsDisplayed()
-            composeRule.onNodeWithContentDescription("Volver al menú").assertIsDisplayed()
+            composeRule.onNodeWithContentDescription("Volver a la pantalla principal").assertIsDisplayed()
 
-            // 3. Click back arrow -> returns to options menu
-            composeRule.onNodeWithContentDescription("Volver al menú").performSemanticsAction(SemanticsActions.OnClick)
+            // 3. Click back arrow -> returns to main screen
+            composeRule.onNodeWithContentDescription("Volver a la pantalla principal").performClick()
             composeRule.waitForIdle()
-            composeRule.onNodeWithText("Menú de opciones").assertIsDisplayed()
-            composeRule.onNodeWithText("Configuración").assertIsDisplayed()
+            composeRule.onNodeWithText("Termux Agent").assertIsDisplayed()
 
-            // 4. Close menu
-            composeRule.onNodeWithContentDescription("Cerrar menú").performSemanticsAction(SemanticsActions.OnClick)
+            // 4. Test gear button directly opens config screen
+            composeRule.onNodeWithContentDescription("Configurar SSH").performClick()
+            composeRule.waitForIdle()
+            composeRule.onNodeWithText("Configuración SSH").assertIsDisplayed()
+            composeRule.onNodeWithContentDescription("Volver a la pantalla principal").performClick()
+            composeRule.waitForIdle()
+            composeRule.onNodeWithText("Termux Agent").assertIsDisplayed()
         }
     }
 
