@@ -54,6 +54,12 @@ dependencies {
 }
 
 tasks.withType<Test>().configureEach {
+    testLogging {
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
+    }
     val isLinuxArm64 = System.getProperty("os.name").equals("Linux", ignoreCase = true) &&
         System.getProperty("os.arch") in setOf("aarch64", "arm64")
     if (isLinuxArm64) {

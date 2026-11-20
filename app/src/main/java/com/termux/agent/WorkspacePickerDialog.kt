@@ -136,6 +136,7 @@ fun WorkspacePickerDialog(
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier
                             .weight(1f)
+                            .testTag("workspace_picker_title")
                             .semantics { heading() }
                     )
                     IconButton(onClick = onDismiss) {

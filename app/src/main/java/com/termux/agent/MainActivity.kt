@@ -344,7 +344,9 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                         Text(
                             text = "Termux Agent",
                             style = MaterialTheme.typography.titleLarge,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("main_screen_title")
                         )
                         if (sessionState !is ConnectionState.Disconnected) {
                             IconButton(

@@ -7,8 +7,10 @@ import android.content.pm.PackageInfo
 import android.os.Looper
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -332,7 +334,9 @@ class MainActivityE2ETest {
                 assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
 
                 composeRule.onNodeWithTag("workspace_selector_bar").performClick()
-                composeRule.onNodeWithText("Seleccionar proyecto").assertIsDisplayed()
+                composeRule.onNodeWithTag("workspace_picker_title")
+                    .assertIsDisplayed()
+                    .assertTextEquals("Seleccionar proyecto")
 
                 composeRule.waitUntil(timeoutMillis = 5_000) {
                     composeRule.onAllNodesWithText("termux-agent-app")
@@ -354,7 +358,7 @@ class MainActivityE2ETest {
 
                 composeRule.onNodeWithTag("workspace_picker_confirm").performClick()
                 composeRule.waitUntil(timeoutMillis = 5_000) {
-                    composeRule.onAllNodesWithText("Seleccionar proyecto")
+                    composeRule.onAllNodesWithTag("workspace_picker_title")
                         .fetchSemanticsNodes()
                         .isEmpty()
                 }
@@ -415,7 +419,9 @@ class MainActivityE2ETest {
             // 3. Click back arrow -> returns to main screen
             composeRule.onNodeWithContentDescription("Volver a la pantalla principal").performClick()
             composeRule.waitForIdle()
-            composeRule.onNodeWithText("Termux Agent").assertIsDisplayed()
+            composeRule.onNodeWithTag("main_screen_title")
+                .assertIsDisplayed()
+                .assertTextEquals("Termux Agent")
 
             // 4. Test gear button directly opens config screen
             composeRule.onNodeWithContentDescription("Configurar SSH").performClick()
@@ -423,7 +429,9 @@ class MainActivityE2ETest {
             composeRule.onNodeWithText("Configuración SSH").assertIsDisplayed()
             composeRule.onNodeWithContentDescription("Volver a la pantalla principal").performClick()
             composeRule.waitForIdle()
-            composeRule.onNodeWithText("Termux Agent").assertIsDisplayed()
+            composeRule.onNodeWithTag("main_screen_title")
+                .assertIsDisplayed()
+                .assertTextEquals("Termux Agent")
         }
     }
 
