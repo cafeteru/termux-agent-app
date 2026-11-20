@@ -68,10 +68,7 @@ class MainActivityE2ETest {
     fun fullDrawerTerminalCommandAndDisconnectFlow() {
         FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
             ActivityScenario.launch(MainActivity::class.java).use {
-                // Drain any cold-start auto-connect service intent queued by LaunchedEffect(Unit).
-                while (Shadows.shadowOf(app).nextStartedService != null) {
-                    // Intentionally drained before explicitly testing drawer and connection flow.
-                }
+                drainStartedServices()
 
                 composeRule.onNodeWithContentDescription("Abrir menú").performClick()
                 composeRule.waitForIdle()
@@ -126,10 +123,12 @@ class MainActivityE2ETest {
                 assertTrue(server.receivedCommands.contains("whoami"))
                 assertTrue(server.receivedCommands.contains(""))
 
+                drainStartedServices()
                 composeRule.onNodeWithContentDescription("Desconectar SSH").performClick()
                 pumpStartedServices()
 
                 composeRule.waitUntil(timeoutMillis = 5_000) {
+                    Shadows.shadowOf(Looper.getMainLooper()).idle()
                     composeRule.onAllNodesWithText("Sesión SSH desconectada.")
                         .fetchSemanticsNodes()
                         .isNotEmpty()
@@ -537,6 +536,7 @@ class MainActivityE2ETest {
     )
 
     private fun drainStartedServices() {
+        composeRule.waitForIdle()
         val shadowApp = Shadows.shadowOf(app)
         while (shadowApp.nextStartedService != null) {
             // Intentionally drained before explicitly testing UI and service actions.

@@ -330,7 +330,6 @@ class SshPtySession {
             sessionGeneration++
             clearSessionRefsLocked()
         }
-        closeResources(resources)
         if (updateState) {
             _activeAdapter.value.reset()
             _activeAdapter.value = AdapterRegistry.getAdapter("agy")
@@ -342,6 +341,7 @@ class SshPtySession {
             _currentCommandLine.value = ""
             _connectionState.value = ConnectionState.Disconnected
         }
+        closeResources(resources)
     }
 
     private fun readPtyLoop(stream: InputStream, generation: Long) {
