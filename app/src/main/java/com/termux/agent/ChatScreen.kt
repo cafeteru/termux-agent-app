@@ -33,8 +33,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -58,9 +56,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.termux.agent.adapter.AdapterEvent
-import com.termux.agent.adapter.AdapterRegistry
 import com.termux.agent.adapter.AgentAdapter
 import com.termux.agent.adapter.AgentState
 import com.termux.agent.adapter.ChatMessage
@@ -71,7 +69,6 @@ fun ChatScreen(
     agentState: AgentState,
     adapterEvent: AdapterEvent?,
     messages: List<ChatMessage>,
-    onSelectAgent: (String) -> Unit,
     onLaunchAgent: () -> Unit,
     onSendPrompt: (String) -> Unit,
     onResolvePermission: (Boolean) -> Unit,
@@ -103,7 +100,6 @@ fun ChatScreen(
         AgentControlBar(
             activeAdapter = activeAdapter,
             agentState = agentState,
-            onSelectAgent = onSelectAgent,
             onLaunchAgent = onLaunchAgent,
             onClearChat = onClearChat,
             modifier = Modifier
@@ -172,7 +168,6 @@ fun ChatScreen(
 private fun AgentControlBar(
     activeAdapter: AgentAdapter,
     agentState: AgentState,
-    onSelectAgent: (String) -> Unit,
     onLaunchAgent: () -> Unit,
     onClearChat: () -> Unit,
     modifier: Modifier = Modifier
@@ -183,22 +178,22 @@ private fun AgentControlBar(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
+            modifier = Modifier.weight(1f),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            for (id in AdapterRegistry.supportedAgentIds()) {
-                val isSelected = activeAdapter.id.equals(id, ignoreCase = true)
-                val label = if (id == "agy") "Antigravity (agy)" else "Copilot"
-                FilterChip(
-                    selected = isSelected,
-                    onClick = { onSelectAgent(id) },
-                    label = { Text(label, style = MaterialTheme.typography.labelMedium) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                )
-            }
+            Icon(
+                imageVector = agentIconForId(activeAdapter.id),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
+            )
+            Text(
+                text = activeAdapter.name,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
 
         Row(

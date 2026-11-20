@@ -7,6 +7,7 @@ import android.content.pm.PackageInfo
 import android.os.Looper
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -70,8 +71,10 @@ class MainActivityE2ETest {
                 }
 
                 composeRule.onNodeWithContentDescription("Abrir menú").performClick()
+                composeRule.waitForIdle()
                 composeRule.onNodeWithText("Menú de opciones").assertIsDisplayed()
-                composeRule.onNodeWithText("Configuración").performClick()
+                composeRule.onNodeWithTag("drawer_option_config").performSemanticsAction(SemanticsActions.OnClick)
+                composeRule.waitForIdle()
                 composeRule.onNodeWithText("Configuración SSH").assertIsDisplayed()
                 composeRule.onNodeWithContentDescription("Volver a la pantalla principal").assertIsDisplayed()
                 composeRule.onNodeWithContentDescription("Volver a la pantalla principal").performClick()
@@ -286,13 +289,22 @@ class MainActivityE2ETest {
                 composeRule.onNodeWithText("Chat").assertIsDisplayed()
                 composeRule.onNodeWithText("Terminal").assertIsDisplayed()
 
-                // Default agent chip is Antigravity (agy)
-                composeRule.onNodeWithText("Antigravity (agy)").assertIsDisplayed()
-                composeRule.onNodeWithText("Copilot").assertIsDisplayed()
+                // Agent selector chips were moved from ChatScreen into the navigation drawer
+                composeRule.onNodeWithText("Antigravity (agy)").assertDoesNotExist()
+                composeRule.onNodeWithText("Google Antigravity CLI").assertIsDisplayed()
 
-                // Switch to Copilot agent chip
-                composeRule.onNodeWithText("Copilot").performClick()
+                // Switch to Copilot via the navigation drawer
+                composeRule.onNodeWithContentDescription("Abrir menú").performClick()
+                composeRule.waitForIdle()
+                composeRule.onNodeWithText("Antigravity").assertIsDisplayed()
+                composeRule.onNodeWithText("Copilot").assertIsDisplayed()
+                composeRule.onNodeWithTag("drawer_options_divider").assertIsDisplayed()
+                composeRule.onNodeWithText("Configuración").assertIsDisplayed()
+                composeRule.onNodeWithTag("drawer_option_copilot").performSemanticsAction(SemanticsActions.OnClick)
+                composeRule.waitForIdle()
+
                 assertEquals("copilot", SshSessionManager.activeAdapter.value.id)
+                composeRule.onNodeWithText("GitHub Copilot CLI").assertIsDisplayed()
 
                 // Submit prompt in Chat input field
                 composeRule.onNodeWithTag("chat_input_field").performTextInput("Hello agent")
@@ -314,11 +326,36 @@ class MainActivityE2ETest {
         ActivityScenario.launch(MainActivity::class.java).use {
             drainStartedServices()
 
-            // 1. Open drawer -> should show options menu with "Configuración"
+            // 1. Open drawer -> should show Antigravity and Copilot above divider and Configuración
             composeRule.onNodeWithContentDescription("Abrir menú").performClick()
             composeRule.waitForIdle()
             composeRule.onNodeWithText("Menú de opciones").assertIsDisplayed()
+            composeRule.onNodeWithText("Antigravity").assertIsDisplayed()
+            composeRule.onNodeWithText("Copilot").assertIsDisplayed()
+            composeRule.onNodeWithTag("drawer_options_divider").assertIsDisplayed()
             composeRule.onNodeWithText("Configuración").assertIsDisplayed()
+
+            val antigravityTop = composeRule.onNodeWithTag("drawer_option_antigravity").getUnclippedBoundsInRoot().top
+            val copilotTop = composeRule.onNodeWithTag("drawer_option_copilot").getUnclippedBoundsInRoot().top
+            val dividerTop = composeRule.onNodeWithTag("drawer_options_divider").getUnclippedBoundsInRoot().top
+            val configTop = composeRule.onNodeWithTag("drawer_option_config").getUnclippedBoundsInRoot().top
+            assertTrue(antigravityTop < copilotTop)
+            assertTrue(copilotTop < dividerTop)
+            assertTrue(dividerTop < configTop)
+
+            // Switch Copilot -> Antigravity from drawer
+            composeRule.onNodeWithTag("drawer_option_copilot").performSemanticsAction(SemanticsActions.OnClick)
+            composeRule.waitForIdle()
+            assertEquals("copilot", SshSessionManager.activeAdapter.value.id)
+
+            composeRule.onNodeWithContentDescription("Abrir menú").performClick()
+            composeRule.waitForIdle()
+            composeRule.onNodeWithTag("drawer_option_antigravity").performSemanticsAction(SemanticsActions.OnClick)
+            composeRule.waitForIdle()
+            assertEquals("agy", SshSessionManager.activeAdapter.value.id)
+
+            composeRule.onNodeWithContentDescription("Abrir menú").performClick()
+            composeRule.waitForIdle()
 
             // 2. Click "Configuración" -> drawer closes and main screen transitions to SSH config
             composeRule.onNodeWithText("Configuración").performSemanticsAction(SemanticsActions.OnClick)
