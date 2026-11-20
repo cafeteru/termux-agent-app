@@ -31,3 +31,27 @@ interface AgentAdapter {
     fun resolvePermission(ptyOutput: OutputStream, allow: Boolean, optionIndex: Int? = null)
     fun reset()
 }
+
+internal fun buildWorkspaceLaunchCommand(workspacePath: String, binary: String): String {
+    val cleaned = workspacePath.replace("\r", "").replace("\n", "").trim()
+    if (cleaned.isEmpty()) return binary
+
+    val quotedPath = when {
+        cleaned == "~" -> "\"\$HOME\""
+        cleaned.startsWith("~/") -> "\"\$HOME/${escapeDoubleQuotedShell(cleaned.removePrefix("~/"))}\""
+        else -> "\"${escapeDoubleQuotedShell(cleaned)}\""
+    }
+    return "cd $quotedPath && $binary"
+}
+
+private fun escapeDoubleQuotedShell(value: String): String = buildString(value.length) {
+    for (ch in value) {
+        when (ch) {
+            '\\', '"', '$', '`' -> {
+                append('\\')
+                append(ch)
+            }
+            else -> append(ch)
+        }
+    }
+}

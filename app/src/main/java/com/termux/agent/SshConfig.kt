@@ -58,6 +58,7 @@ object SshConfigStore {
     private const val KEY_PASSWORD = "password"
     private const val KEY_PRIVATE_KEY_PEM = "private_key_pem"
     private const val KEY_PUBLIC_KEY_AUTHORIZED = "public_key_authorized"
+    private const val KEY_WORKSPACE_PATH = "workspace_path"
 
     /**
      * Loads persisted SSH settings, generating a key pair on first access if missing.
@@ -114,6 +115,24 @@ object SshConfigStore {
             .putString(KEY_PASSWORD, config.password)
             .putString(KEY_PRIVATE_KEY_PEM, config.privateKeyPem)
             .putString(KEY_PUBLIC_KEY_AUTHORIZED, config.publicKeyAuthorized)
+            .apply()
+    }
+
+    /**
+     * Loads the last selected project directory path, or blank if none was chosen yet.
+     */
+    fun loadWorkspacePath(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_WORKSPACE_PATH, "")?.trim().orEmpty()
+    }
+
+    /**
+     * Persists the selected project directory path independently of SSH connection settings.
+     */
+    fun saveWorkspacePath(context: Context, workspacePath: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_WORKSPACE_PATH, workspacePath.trim())
             .apply()
     }
 }

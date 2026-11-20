@@ -1,5 +1,6 @@
 package com.termux.agent
 
+import com.jcraft.jsch.ChannelExec
 import com.jcraft.jsch.ChannelShell
 import com.jcraft.jsch.Session
 import com.termux.agent.adapter.AdapterEvent
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.Executors
@@ -158,6 +160,57 @@ class SshPtySession {
 
     fun launchActiveAgentAsync(workspacePath: String = "") {
         writeExecutor.execute { launchActiveAgent(workspacePath) }
+    }
+
+    /**
+     * Lists subdirectories of [path] (or remote `$HOME` when blank) over a short-lived SSH exec channel.
+     */
+    fun listDirectories(
+        path: String = "",
+        timeoutMs: Int = AppConfig.DEFAULT_CONNECT_TIMEOUT_MS
+    ): DirectoryListingResult {
+        val activeSession = synchronized(lock) {
+            session?.takeIf { it.isConnected }
+        } ?: return DirectoryListingResult.Error("No hay una sesión SSH activa.")
+
+        var exec: ChannelExec? = null
+        return try {
+            exec = activeSession.openChannel("exec") as ChannelExec
+            exec.setCommand(WorkspaceBrowser.LIST_DIRECTORIES_COMMAND)
+            val stdout = exec.inputStream
+            val stdin = exec.outputStream
+            exec.connect(timeoutMs)
+
+            stdin.write((WorkspaceBrowser.sanitizeRequestedPath(path) + "\n").toByteArray(Charsets.UTF_8))
+            stdin.flush()
+            stdin.close()
+
+            val outBuffer = ByteArrayOutputStream()
+            val chunk = ByteArray(4096)
+            val maxBytes = 256 * 1024
+            while (true) {
+                val read = stdout.read(chunk)
+                if (read < 0) break
+                if (read == 0) continue
+                val remaining = maxBytes - outBuffer.size()
+                if (remaining <= 0) break
+                outBuffer.write(chunk, 0, minOf(read, remaining))
+            }
+
+            val deadline = System.currentTimeMillis() + 1_000L
+            while (!exec.isClosed && System.currentTimeMillis() < deadline) {
+                Thread.sleep(10)
+            }
+
+            val rawOutput = String(outBuffer.toByteArray(), Charsets.UTF_8)
+            WorkspaceBrowser.parseDirectoryListingOutput(rawOutput, exec.exitStatus)
+        } catch (e: Exception) {
+            DirectoryListingResult.Error(
+                "Error SSH al explorar directorios: ${e.message ?: e.javaClass.simpleName}"
+            )
+        } finally {
+            runCatching { exec?.disconnect() }
+        }
     }
 
     internal fun emitAdapterEventForTesting(event: AdapterEvent) {
@@ -463,6 +516,11 @@ object SshSessionManager {
 
     fun launchActiveAgentAsync(workspacePath: String = "") =
         activeSession.launchActiveAgentAsync(workspacePath)
+
+    fun listDirectories(
+        path: String = "",
+        timeoutMs: Int = AppConfig.DEFAULT_CONNECT_TIMEOUT_MS
+    ): DirectoryListingResult = activeSession.listDirectories(path, timeoutMs)
 
     internal fun emitAdapterEventForTesting(event: AdapterEvent) =
         activeSession.emitAdapterEventForTesting(event)

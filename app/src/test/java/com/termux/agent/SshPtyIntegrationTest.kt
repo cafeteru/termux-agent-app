@@ -287,6 +287,53 @@ class SshPtyIntegrationTest {
         }
     }
 
+    @Test
+    fun listDirectoriesAndLaunchAgentWithWorkspace() {
+        val disconnected = SshSessionManager.listDirectories("")
+        assertTrue(disconnected is DirectoryListingResult.Error)
+
+        FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
+            val state = SshSessionManager.connect(
+                isTermuxInstalled = { true },
+                config = SshConfig(
+                    host = "127.0.0.1",
+                    port = server.port,
+                    username = "termux",
+                    authMethod = AuthMethod.PASSWORD,
+                    password = "secret"
+                ),
+                timeoutMs = 5_000
+            )
+            assertTrue("Expected Connected but got $state", state is ConnectionState.Connected)
+
+            val homeListing = SshSessionManager.listDirectories("")
+            assertEquals(
+                DirectoryListingResult.Success(
+                    currentPath = "/home/termux",
+                    subdirectories = listOf(".hidden-repo", "notes", "termux-agent-app")
+                ),
+                homeListing
+            )
+
+            val projectListing = SshSessionManager.listDirectories("/home/termux/termux-agent-app")
+            assertEquals(
+                DirectoryListingResult.Success(
+                    currentPath = "/home/termux/termux-agent-app",
+                    subdirectories = listOf(".git", "app")
+                ),
+                projectListing
+            )
+
+            val missingListing = SshSessionManager.listDirectories("/does/not/exist")
+            assertTrue(missingListing is DirectoryListingResult.Error)
+
+            assertTrue(SshSessionManager.launchActiveAgent("/home/termux/termux-agent-app"))
+            awaitCondition(timeoutMs = 5_000) {
+                server.receivedCommands.contains("cd \"/home/termux/termux-agent-app\" && agy")
+            }
+        }
+    }
+
     private fun awaitCondition(timeoutMs: Long, condition: () -> Boolean) {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {

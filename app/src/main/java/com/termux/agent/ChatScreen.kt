@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -53,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -69,6 +72,8 @@ fun ChatScreen(
     agentState: AgentState,
     adapterEvent: AdapterEvent?,
     messages: List<ChatMessage>,
+    selectedWorkspacePath: String,
+    onOpenWorkspacePicker: () -> Unit,
     onLaunchAgent: () -> Unit,
     onSendPrompt: (String) -> Unit,
     onResolvePermission: (Boolean) -> Unit,
@@ -109,6 +114,14 @@ fun ChatScreen(
 
         HorizontalDivider()
 
+        WorkspaceSelectorBar(
+            selectedWorkspacePath = selectedWorkspacePath,
+            onClick = onOpenWorkspacePicker,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        HorizontalDivider()
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -117,6 +130,8 @@ fun ChatScreen(
             if (messages.isEmpty() && agentState != AgentState.WAITING_PERMISSION) {
                 EmptyChatPlaceholder(
                     agentName = activeAdapter.name,
+                    selectedWorkspacePath = selectedWorkspacePath,
+                    onOpenWorkspacePicker = onOpenWorkspacePicker,
                     onLaunchAgent = onLaunchAgent,
                     modifier = Modifier
                         .fillMaxSize()
@@ -224,6 +239,57 @@ private fun AgentControlBar(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun WorkspaceSelectorBar(
+    selectedWorkspacePath: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .defaultMinSize(minHeight = 48.dp)
+            .clickable(onClick = onClick)
+            .testTag("workspace_selector_bar")
+            .semantics(mergeDescendants = true) {}
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(
+            imageVector = FolderIcon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(18.dp)
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = WorkspaceBrowser.displayName(selectedWorkspacePath),
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = selectedWorkspacePath.ifBlank { "Usará directorio actual (~)" },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Text(
+            text = "Cambiar",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp)
+        )
     }
 }
 
@@ -418,6 +484,8 @@ private fun PermissionRequestCard(
 @Composable
 private fun EmptyChatPlaceholder(
     agentName: String,
+    selectedWorkspacePath: String,
+    onOpenWorkspacePicker: () -> Unit,
     onLaunchAgent: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -458,6 +526,21 @@ private fun EmptyChatPlaceholder(
         )
 
         Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedButton(
+            onClick = onOpenWorkspacePicker,
+            modifier = Modifier.testTag("empty_chat_select_workspace")
+        ) {
+            Icon(
+                imageVector = FolderIcon,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(if (selectedWorkspacePath.isBlank()) "Seleccionar carpeta" else "Cambiar carpeta")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         Button(onClick = onLaunchAgent) {
             Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)

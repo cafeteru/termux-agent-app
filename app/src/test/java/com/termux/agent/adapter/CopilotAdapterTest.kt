@@ -14,7 +14,19 @@ class CopilotAdapterTest {
     @Test
     fun testLaunchCommandWithAndWithoutWorkspace() {
         assertEquals("copilot", adapter.launchCommand(""))
+        assertEquals("copilot", adapter.launchCommand("  \n\r "))
         assertEquals("cd \"/data/project\" && copilot", adapter.launchCommand("/data/project"))
+        assertEquals("cd \"/data/My Project\" && copilot", adapter.launchCommand("/data/My Project"))
+        assertEquals("cd \"\$HOME\" && copilot", adapter.launchCommand("~"))
+        assertEquals("cd \"\$HOME/work\" && copilot", adapter.launchCommand("~/work"))
+        assertEquals(
+            "cd \"/tmp/a\\\"\\\$\\`\\\\b\" && copilot",
+            adapter.launchCommand("/tmp/a\"\$`\\b")
+        )
+        assertEquals(
+            "cd \"/data/projectecho pwned\" && copilot",
+            adapter.launchCommand("/data/project\r\necho pwned")
+        )
     }
 
     @Test

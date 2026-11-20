@@ -8,6 +8,7 @@ import org.apache.sshd.server.auth.password.PasswordAuthenticator
 import org.apache.sshd.server.auth.pubkey.PublickeyAuthenticator
 import org.apache.sshd.server.channel.ChannelSession
 import org.apache.sshd.server.command.Command
+import org.apache.sshd.server.command.CommandFactory
 import org.apache.sshd.server.shell.ShellFactory
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -21,7 +22,9 @@ import kotlin.concurrent.thread
  */
 class FakeSshPtyServer(
     private val expectedUser: String = "termux",
-    private val expectedPassword: String = "secret"
+    private val expectedPassword: String = "secret",
+    private val fakeHome: String = DEFAULT_FAKE_HOME,
+    private val fakeDirectories: Map<String, List<String>> = DEFAULT_FAKE_DIRECTORIES
 ) : AutoCloseable {
     val receivedCommands = CopyOnWriteArrayList<String>()
     private val rawBytes = ByteArrayOutputStream()
@@ -43,6 +46,9 @@ class FakeSshPtyServer(
         }
         shellFactory = ShellFactory {
             FakePtyCommand(receivedCommands, rawBytes).also { activeCommand = it }
+        }
+        commandFactory = CommandFactory { _, command ->
+            FakeExecCommand(command, fakeHome, fakeDirectories)
         }
         start()
     }
@@ -153,5 +159,101 @@ class FakeSshPtyServer(
             runCatching { input?.close() }
             worker?.interrupt()
         }
+    }
+
+    private class FakeExecCommand(
+        private val command: String,
+        private val fakeHome: String,
+        private val fakeDirectories: Map<String, List<String>>
+    ) : Command {
+        private var input: InputStream? = null
+        private var output: OutputStream? = null
+        private var exitCallback: ExitCallback? = null
+        private var worker: Thread? = null
+
+        override fun setInputStream(inputStream: InputStream?) {
+            input = inputStream
+        }
+
+        override fun setOutputStream(outputStream: OutputStream?) {
+            output = outputStream
+        }
+
+        override fun setErrorStream(errorStream: OutputStream?) = Unit
+
+        override fun setExitCallback(callback: ExitCallback?) {
+            exitCallback = callback
+        }
+
+        override fun start(channel: ChannelSession?, env: Environment?) {
+            val inp = input ?: return
+            val out = output ?: return
+
+            worker = thread(start = true, isDaemon = true, name = "fake-ssh-exec") {
+                try {
+                    val lineBytes = ByteArrayOutputStream()
+                    while (true) {
+                        val b = inp.read()
+                        if (b < 0 || b == '\n'.code) break
+                        if (b != '\r'.code) {
+                            lineBytes.write(b)
+                        }
+                    }
+                    val requested = lineBytes.toByteArray().toString(Charsets.UTF_8).trim()
+                    if (command != WorkspaceBrowser.LIST_DIRECTORIES_COMMAND) {
+                        exitCallback?.onExit(127)
+                        return@thread
+                    }
+
+                    val resolved = when {
+                        requested.isEmpty() || requested == "~" -> fakeHome
+                        requested.startsWith("~/") -> {
+                            val suffix = requested.removePrefix("~/").trim('/')
+                            if (suffix.isEmpty()) fakeHome else "${fakeHome.trimEnd('/')}/$suffix"
+                        }
+                        requested == "/" -> "/"
+                        else -> requested.trimEnd('/').ifEmpty { "/" }
+                    }
+
+                    val dirs = fakeDirectories[resolved]
+                    if (dirs != null) {
+                        val payload = buildString {
+                            append(WorkspaceBrowser.MARKER)
+                            append(resolved)
+                            append('\u0000')
+                            for (dir in dirs) {
+                                append(dir)
+                                append('\u0000')
+                            }
+                        }
+                        out.write(payload.toByteArray(Charsets.UTF_8))
+                        out.flush()
+                        exitCallback?.onExit(0)
+                    } else {
+                        exitCallback?.onExit(1)
+                    }
+                } catch (_: Exception) {
+                    runCatching { exitCallback?.onExit(1) }
+                }
+            }
+        }
+
+        override fun destroy(channel: ChannelSession?) {
+            runCatching { input?.close() }
+            worker?.interrupt()
+        }
+    }
+
+    companion object {
+        const val DEFAULT_FAKE_HOME = "/home/termux"
+
+        val DEFAULT_FAKE_DIRECTORIES: Map<String, List<String>> = mapOf(
+            "/home/termux" to listOf("termux-agent-app", "notes", ".hidden-repo"),
+            "/home/termux/termux-agent-app" to listOf("app", ".git"),
+            "/home/termux/notes" to emptyList(),
+            "/home/termux/.hidden-repo" to emptyList(),
+            "/home" to listOf("termux"),
+            "/" to listOf("home")
+        )
     }
 }

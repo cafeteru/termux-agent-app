@@ -107,7 +107,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -174,6 +176,10 @@ fun StatusScreen(modifier: Modifier = Modifier) {
     val adapterEvent by SshSessionManager.adapterEvent.collectAsState()
     val chatMessages by SshSessionManager.chatMessages.collectAsState()
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.CHAT) }
+    var selectedWorkspacePath by rememberSaveable {
+        mutableStateOf(SshConfigStore.loadWorkspacePath(context))
+    }
+    var showWorkspacePicker by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         if (SshSessionManager.consumeInitialAutoConnect()) {
@@ -376,8 +382,12 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                                     agentState = agentState,
                                     adapterEvent = adapterEvent,
                                     messages = chatMessages,
+                                    selectedWorkspacePath = selectedWorkspacePath,
+                                    onOpenWorkspacePicker = {
+                                        showWorkspacePicker = true
+                                    },
                                     onLaunchAgent = {
-                                        SshSessionManager.launchActiveAgentAsync()
+                                        SshSessionManager.launchActiveAgentAsync(selectedWorkspacePath)
                                     },
                                     onSendPrompt = { prompt ->
                                         SshSessionManager.sendPromptAsync(prompt)
@@ -451,6 +461,23 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                 }
             }
         }
+    }
+
+    if (showWorkspacePicker && sessionState is ConnectionState.Connected) {
+        WorkspacePickerDialog(
+            initialPath = selectedWorkspacePath,
+            onListDirectories = { path ->
+                withContext(Dispatchers.IO) {
+                    SshSessionManager.listDirectories(path)
+                }
+            },
+            onDismiss = { showWorkspacePicker = false },
+            onSelectDirectory = { chosenPath ->
+                selectedWorkspacePath = chosenPath
+                SshConfigStore.saveWorkspacePath(context, chosenPath)
+                showWorkspacePicker = false
+            }
+        )
     }
 }
 
