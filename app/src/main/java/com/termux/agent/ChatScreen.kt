@@ -36,6 +36,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,6 +60,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.termux.agent.adapter.AdapterEvent
@@ -76,16 +78,19 @@ fun ChatScreen(
     onOpenWorkspacePicker: () -> Unit,
     onLaunchAgent: () -> Unit,
     onSendPrompt: (String) -> Unit,
-    onResolvePermission: (Boolean) -> Unit,
+    onResolvePermission: (allow: Boolean, optionIndex: Int?) -> Unit,
     onClearChat: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var promptInput by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val hasPermissionCard = agentState == AgentState.WAITING_PERMISSION &&
+        adapterEvent is AdapterEvent.PermissionRequired
 
-    LaunchedEffect(messages.size, agentState) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+    LaunchedEffect(messages.size, hasPermissionCard) {
+        val totalItems = messages.size + if (hasPermissionCard) 1 else 0
+        if (totalItems > 0) {
+            listState.animateScrollToItem(totalItems - 1)
         }
     }
 
@@ -154,9 +159,10 @@ fun ChatScreen(
                         item {
                             PermissionRequestCard(
                                 event = adapterEvent,
-                                onAllow = { onResolvePermission(true) },
-                                onDeny = { onResolvePermission(false) },
-                                modifier = Modifier.fillMaxWidth()
+                                onSelectOption = onResolvePermission,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("permission_request_card")
                             )
                         }
                     }
@@ -402,11 +408,12 @@ private fun ChatMessageItem(message: ChatMessage, modifier: Modifier = Modifier)
     }
 }
 
+private val DENY_OPTION_REGEX = Regex("""(?i)^(?:no\b|cancel|deny|reject|denegar|cancelar)""")
+
 @Composable
 private fun PermissionRequestCard(
     event: AdapterEvent.PermissionRequired,
-    onAllow: () -> Unit,
-    onDeny: () -> Unit,
+    onSelectOption: (allow: Boolean, optionIndex: Int?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -452,29 +459,79 @@ private fun PermissionRequestCard(
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(
-                    onClick = onAllow,
-                    modifier = Modifier.weight(1f)
+            if (event.options.size > 2) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Permitir")
-                }
+                    event.options.forEachIndexed { index, option ->
+                        val isDeny = DENY_OPTION_REGEX.containsMatchIn(option.trim())
+                        val buttonModifier = Modifier
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = 48.dp)
+                            .testTag("permission_option_$index")
+                        val buttonPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+                        val labelContent: @Composable () -> Unit = {
+                            Text(
+                                text = "${index + 1}. $option",
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = TextAlign.Start
+                            )
+                        }
 
-                OutlinedButton(
-                    onClick = onDeny,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
+                        when {
+                            isDeny -> OutlinedButton(
+                                onClick = { onSelectOption(false, index) },
+                                modifier = buttonModifier,
+                                contentPadding = buttonPadding,
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error
+                                )
+                            ) {
+                                labelContent()
+                            }
+                            index == 0 -> Button(
+                                onClick = { onSelectOption(true, index) },
+                                modifier = buttonModifier,
+                                contentPadding = buttonPadding
+                            ) {
+                                labelContent()
+                            }
+                            else -> FilledTonalButton(
+                                onClick = { onSelectOption(true, index) },
+                                modifier = buttonModifier,
+                                contentPadding = buttonPadding
+                            ) {
+                                labelContent()
+                            }
+                        }
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(imageVector = Icons.Default.Close, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Denegar")
+                    Button(
+                        onClick = { onSelectOption(true, null) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Permitir")
+                    }
+
+                    OutlinedButton(
+                        onClick = { onSelectOption(false, null) },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Icon(imageVector = Icons.Default.Close, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Denegar")
+                    }
                 }
             }
         }
