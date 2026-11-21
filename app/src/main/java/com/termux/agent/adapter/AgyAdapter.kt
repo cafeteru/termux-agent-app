@@ -1,5 +1,6 @@
 package com.termux.agent.adapter
 
+import com.termux.agent.AgentSessionBrowser
 import java.io.OutputStream
 
 class AgyAdapter(private val interKeyDelayMs: Long = 35L) : AgentAdapter {
@@ -32,6 +33,12 @@ class AgyAdapter(private val interKeyDelayMs: Long = 35L) : AgentAdapter {
 
     override fun launchCommand(workspacePath: String): String =
         buildWorkspaceLaunchCommand(workspacePath, "agy")
+
+    override fun launchConversationCommand(workspacePath: String, conversationId: String?): String {
+        val cleanId = conversationId?.trim()?.takeIf { AgentSessionBrowser.isValidConversationId(it) }
+        val binary = if (cleanId != null) "agy --conversation $cleanId" else "agy"
+        return buildWorkspaceLaunchCommand(workspacePath, binary)
+    }
 
     @Synchronized
     override fun sendPrompt(ptyOutput: OutputStream, text: String) {

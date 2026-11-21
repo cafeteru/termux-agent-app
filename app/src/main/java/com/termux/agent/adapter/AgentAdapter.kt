@@ -26,6 +26,8 @@ interface AgentAdapter {
     val currentState: AgentState
 
     fun launchCommand(workspacePath: String = ""): String
+    fun launchConversationCommand(workspacePath: String = "", conversationId: String? = null): String =
+        launchCommand(workspacePath)
     fun onScreenUpdated(screenLines: List<String>, idleMs: Long): AdapterEvent?
     fun sendPrompt(ptyOutput: OutputStream, text: String)
     fun resolvePermission(ptyOutput: OutputStream, allow: Boolean, optionIndex: Int? = null)

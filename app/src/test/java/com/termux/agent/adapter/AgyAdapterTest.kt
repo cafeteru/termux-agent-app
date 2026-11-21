@@ -30,6 +30,24 @@ class AgyAdapterTest {
     }
 
     @Test
+    fun testLaunchConversationCommandWithValidBlankAndInvalidIds() {
+        assertEquals(
+            "agy --conversation c063592d-5610-4f16-8041-4ffd9a2447ff",
+            adapter.launchConversationCommand("", "c063592d-5610-4f16-8041-4ffd9a2447ff")
+        )
+        assertEquals(
+            "cd \"/sdcard/project\" && agy --conversation sess_1",
+            adapter.launchConversationCommand("/sdcard/project", " sess_1 ")
+        )
+        assertEquals("agy", adapter.launchConversationCommand("", null))
+        assertEquals("agy", adapter.launchConversationCommand("", "   "))
+        assertEquals(
+            "cd \"/sdcard/project\" && agy",
+            adapter.launchConversationCommand("/sdcard/project", "../bad;rm -rf /")
+        )
+    }
+
+    @Test
     fun testSendPromptWritesTextAndCarriageReturnAndSetsWorking() {
         val out = ByteArrayOutputStream()
         adapter.sendPrompt(out, "explain this function")

@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,6 +24,9 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -32,6 +37,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -44,6 +50,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
@@ -67,6 +74,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -98,6 +106,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -105,6 +114,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
@@ -175,6 +185,11 @@ fun StatusScreen(modifier: Modifier = Modifier) {
     val agentState by SshSessionManager.agentState.collectAsState()
     val adapterEvent by SshSessionManager.adapterEvent.collectAsState()
     val chatMessages by SshSessionManager.chatMessages.collectAsState()
+    val agentSessions by SshSessionManager.agentSessions.collectAsState()
+    val agentSessionsLoading by SshSessionManager.agentSessionsLoading.collectAsState()
+    val agentSessionsError by SshSessionManager.agentSessionsError.collectAsState()
+    val activeConversationId by SshSessionManager.activeConversationId.collectAsState()
+    val activeConversationTitle by SshSessionManager.activeConversationTitle.collectAsState()
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.CHAT) }
     var selectedWorkspacePath by rememberSaveable {
         mutableStateOf(SshConfigStore.loadWorkspacePath(context))
@@ -184,6 +199,15 @@ fun StatusScreen(modifier: Modifier = Modifier) {
     LaunchedEffect(Unit) {
         if (SshSessionManager.consumeInitialAutoConnect()) {
             AgentForegroundService.connect(context)
+        }
+    }
+
+    LaunchedEffect(drawerState.isOpen, sessionState, activeAdapter.id) {
+        if (drawerState.isOpen &&
+            sessionState is ConnectionState.Connected &&
+            AgentSessionBrowser.supportsSessions(activeAdapter.id)
+        ) {
+            SshSessionManager.refreshAgentSessionsAsync()
         }
     }
 
@@ -203,11 +227,46 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                 DrawerOptionsMenu(
                     activeAgentId = activeAdapter.id,
                     currentScreen = currentScreen,
+                    isConnected = sessionState is ConnectionState.Connected,
+                    selectedWorkspacePath = selectedWorkspacePath,
+                    agentSessions = agentSessions,
+                    agentSessionsLoading = agentSessionsLoading,
+                    agentSessionsError = agentSessionsError,
+                    activeConversationId = activeConversationId,
                     onSelectAgent = { id ->
                         SshSessionManager.setActiveAdapterById(id)
                         currentScreen = MainScreen.MAIN
                         selectedTab = AppTab.CHAT
                         scope.launch { drawerState.close() }
+                    },
+                    onNewSession = {
+                        SshSessionManager.startNewSessionAsync(selectedWorkspacePath)
+                        currentScreen = MainScreen.MAIN
+                        selectedTab = AppTab.CHAT
+                        scope.launch { drawerState.close() }
+                    },
+                    onNewSessionInWorkspace = { workspacePath ->
+                        if (workspacePath.isNotBlank()) {
+                            selectedWorkspacePath = workspacePath
+                            SshConfigStore.saveWorkspacePath(context, workspacePath)
+                        }
+                        SshSessionManager.startNewSessionAsync(workspacePath)
+                        currentScreen = MainScreen.MAIN
+                        selectedTab = AppTab.CHAT
+                        scope.launch { drawerState.close() }
+                    },
+                    onSelectSession = { session ->
+                        if (session.workspacePath.isNotBlank()) {
+                            selectedWorkspacePath = session.workspacePath
+                            SshConfigStore.saveWorkspacePath(context, session.workspacePath)
+                        }
+                        SshSessionManager.openConversationAsync(session)
+                        currentScreen = MainScreen.MAIN
+                        selectedTab = AppTab.CHAT
+                        scope.launch { drawerState.close() }
+                    },
+                    onRefreshSessions = {
+                        SshSessionManager.refreshAgentSessionsAsync()
                     },
                     onSelectConfig = {
                         currentScreen = MainScreen.CONFIG
@@ -400,6 +459,14 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                                     onClearChat = {
                                         SshSessionManager.clearChat()
                                     },
+                                    activeConversationId = activeConversationId,
+                                    activeConversationTitle = activeConversationTitle,
+                                    onOpenSessions = {
+                                        scope.launch { drawerState.open() }
+                                    },
+                                    onNewSession = {
+                                        SshSessionManager.startNewSessionAsync(selectedWorkspacePath)
+                                    },
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }
@@ -487,18 +554,27 @@ fun StatusScreen(modifier: Modifier = Modifier) {
 private fun DrawerOptionsMenu(
     activeAgentId: String,
     currentScreen: MainScreen,
+    isConnected: Boolean,
+    selectedWorkspacePath: String,
+    agentSessions: List<AgentSessionSummary>,
+    agentSessionsLoading: Boolean,
+    agentSessionsError: String?,
+    activeConversationId: String?,
     onSelectAgent: (String) -> Unit,
+    onNewSession: () -> Unit,
+    onNewSessionInWorkspace: (String) -> Unit,
+    onSelectSession: (AgentSessionSummary) -> Unit,
+    onRefreshSessions: () -> Unit,
     onSelectConfig: () -> Unit,
     onCloseDrawer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier
-            .fillMaxWidth()
+            .fillMaxSize()
             .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -556,6 +632,26 @@ private fun DrawerOptionsMenu(
 
         HorizontalDivider(modifier = Modifier.testTag("drawer_options_divider"))
 
+        if (isConnected && AgentSessionBrowser.supportsSessions(activeAgentId)) {
+            AgentSessionsSection(
+                activeAgentId = activeAgentId,
+                selectedWorkspacePath = selectedWorkspacePath,
+                sessions = agentSessions,
+                isLoading = agentSessionsLoading,
+                errorMessage = agentSessionsError,
+                activeConversationId = activeConversationId,
+                onNewSession = onNewSession,
+                onNewSessionInWorkspace = onNewSessionInWorkspace,
+                onSelectSession = onSelectSession,
+                onRefresh = onRefreshSessions,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            )
+
+            HorizontalDivider()
+        }
+
         DrawerOptionCard(
             title = "Configuración",
             subtitle = "Conexión SSH y ajustes de Termux",
@@ -564,6 +660,370 @@ private fun DrawerOptionsMenu(
             testTag = "drawer_option_config",
             onClick = onSelectConfig
         )
+    }
+}
+
+@Composable
+private fun AgentSessionsSection(
+    activeAgentId: String,
+    selectedWorkspacePath: String,
+    sessions: List<AgentSessionSummary>,
+    isLoading: Boolean,
+    errorMessage: String?,
+    activeConversationId: String?,
+    onNewSession: () -> Unit,
+    onNewSessionInWorkspace: (String) -> Unit,
+    onSelectSession: (AgentSessionSummary) -> Unit,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var filterByWorkspace by rememberSaveable { mutableStateOf(false) }
+    val applyWorkspaceFilter = filterByWorkspace && selectedWorkspacePath.isNotBlank()
+    val visibleSessions = remember(sessions, applyWorkspaceFilter, selectedWorkspacePath) {
+        if (applyWorkspaceFilter) {
+            sessions.filter { AgentSessionBrowser.matchesWorkspace(it.workspacePath, selectedWorkspacePath) }
+        } else {
+            sessions
+        }
+    }
+    val groups = remember(visibleSessions, selectedWorkspacePath) {
+        AgentSessionBrowser.groupSessionsByWorkspace(visibleSessions, selectedWorkspacePath)
+    }
+    val defaultExpanded = remember(groups, activeConversationId, selectedWorkspacePath) {
+        AgentSessionBrowser.defaultExpandedWorkspaceKey(groups, activeConversationId, selectedWorkspacePath)
+    }
+    val expandedOverrides = remember(activeAgentId) { mutableStateMapOf<String, Boolean>() }
+
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Directorios y sesiones",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.semantics { heading() }
+            )
+            IconButton(
+                onClick = onRefresh,
+                modifier = Modifier.testTag("drawer_refresh_sessions")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Actualizar sesiones",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        FilledTonalButton(
+            onClick = onNewSession,
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = 48.dp)
+                .testTag("drawer_new_session_button")
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Nueva conversación")
+        }
+
+        if (selectedWorkspacePath.isNotBlank()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = !filterByWorkspace,
+                    onClick = { filterByWorkspace = false },
+                    label = { Text("Todas") },
+                    modifier = Modifier.testTag("drawer_sessions_filter_all")
+                )
+                FilterChip(
+                    selected = filterByWorkspace,
+                    onClick = { filterByWorkspace = true },
+                    label = { Text("Este proyecto") },
+                    modifier = Modifier.testTag("drawer_sessions_filter_workspace")
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            when {
+                isLoading && sessions.isEmpty() -> {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                }
+                errorMessage != null && sessions.isEmpty() -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.Center)
+                            .padding(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = errorMessage,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center
+                        )
+                        OutlinedButton(onClick = onRefresh) {
+                            Text("Reintentar")
+                        }
+                    }
+                }
+                groups.isEmpty() -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.Center)
+                            .padding(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = if (applyWorkspaceFilter) {
+                                "No hay sesiones en este proyecto."
+                            } else {
+                                "No hay sesiones guardadas."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                        if (applyWorkspaceFilter && sessions.isNotEmpty()) {
+                            OutlinedButton(onClick = { filterByWorkspace = false }) {
+                                Text("Ver todas")
+                            }
+                        }
+                    }
+                }
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag("drawer_sessions_list"),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        for (group in groups) {
+                            val isExpanded = applyWorkspaceFilter ||
+                                (expandedOverrides[group.workspacePath] ?: (group.workspacePath == defaultExpanded))
+                            val isSelectedWorkspace = selectedWorkspacePath.isNotBlank() &&
+                                AgentSessionBrowser.matchesWorkspace(group.workspacePath, selectedWorkspacePath)
+
+                            item(key = "ws:${group.workspacePath}") {
+                                AgentWorkspaceGroupHeader(
+                                    group = group,
+                                    isExpanded = isExpanded,
+                                    isSelectedWorkspace = isSelectedWorkspace,
+                                    onToggleExpand = {
+                                        expandedOverrides[group.workspacePath] = !isExpanded
+                                    },
+                                    onNewSessionInWorkspace = {
+                                        onNewSessionInWorkspace(group.workspacePath)
+                                    }
+                                )
+                            }
+
+                            if (isExpanded) {
+                                items(group.sessions, key = { "sess:${it.id}" }) { session ->
+                                    AgentSessionRow(
+                                        session = session,
+                                        isSelected = session.id == activeConversationId,
+                                        onClick = { onSelectSession(session) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentWorkspaceGroupHeader(
+    group: AgentWorkspaceGroup,
+    isExpanded: Boolean,
+    isSelectedWorkspace: Boolean,
+    onToggleExpand: () -> Unit,
+    onNewSessionInWorkspace: () -> Unit
+) {
+    val containerColor = if (isSelectedWorkspace) {
+        MaterialTheme.colorScheme.secondaryContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f)
+    }
+    val subTextColor = if (isSelectedWorkspace) {
+        MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val tagKey = group.workspacePath.ifEmpty { "none" }
+
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = containerColor,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .defaultMinSize(minHeight = 48.dp)
+                    .clickable(onClick = onToggleExpand)
+                    .testTag("drawer_workspace_header_$tagKey")
+                    .semantics(mergeDescendants = true) {}
+                    .padding(start = 8.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = if (isExpanded) {
+                        Icons.Default.KeyboardArrowDown
+                    } else {
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight
+                    },
+                    contentDescription = null,
+                    tint = subTextColor,
+                    modifier = Modifier.size(18.dp)
+                )
+                Icon(
+                    imageVector = FolderIcon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "${group.displayName} (${group.sessions.size})",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (group.workspacePath.isNotBlank()) {
+                        Text(
+                            text = group.workspacePath,
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            color = subTextColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            IconButton(
+                onClick = onNewSessionInWorkspace,
+                modifier = Modifier.testTag("drawer_workspace_new_session_$tagKey")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Nueva conversación en ${group.displayName}",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentSessionRow(
+    session: AgentSessionSummary,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    val containerColor = if (isSelected) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+    }
+    val metaParts = buildList {
+        val formattedTime = AgentSessionBrowser.formatShortTimestamp(session.lastModifiedIso)
+        if (formattedTime.isNotBlank()) {
+            add(formattedTime)
+        }
+        if (session.isRunning) {
+            add("En curso")
+        }
+    }
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp)
+            .defaultMinSize(minHeight = 48.dp)
+            .testTag("drawer_session_item_${session.id}")
+            .semantics { selected = isSelected },
+        colors = CardDefaults.cardColors(containerColor = containerColor)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = ChatBubbleIcon,
+                contentDescription = null,
+                tint = if (isSelected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.size(16.dp)
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = session.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (metaParts.isNotEmpty()) {
+                    Text(
+                        text = metaParts.joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            if (isSelected) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
     }
 }
 
@@ -599,7 +1059,7 @@ private fun DrawerOptionCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {

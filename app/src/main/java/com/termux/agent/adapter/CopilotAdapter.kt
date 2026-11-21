@@ -1,5 +1,6 @@
 package com.termux.agent.adapter
 
+import com.termux.agent.AgentSessionBrowser
 import java.io.OutputStream
 
 class CopilotAdapter : AgentAdapter {
@@ -14,6 +15,12 @@ class CopilotAdapter : AgentAdapter {
 
     override fun launchCommand(workspacePath: String): String =
         buildWorkspaceLaunchCommand(workspacePath, "copilot")
+
+    override fun launchConversationCommand(workspacePath: String, conversationId: String?): String {
+        val cleanId = conversationId?.trim()?.takeIf { AgentSessionBrowser.isValidConversationId(it) }
+        val binary = if (cleanId != null) "copilot --resume=$cleanId" else "copilot"
+        return buildWorkspaceLaunchCommand(workspacePath, binary)
+    }
 
     override fun sendPrompt(ptyOutput: OutputStream, text: String) {
         ptyOutput.write(text.toByteArray(Charsets.UTF_8))

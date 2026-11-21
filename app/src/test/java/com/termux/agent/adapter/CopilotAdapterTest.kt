@@ -30,6 +30,24 @@ class CopilotAdapterTest {
     }
 
     @Test
+    fun testLaunchConversationCommandWithValidBlankAndInvalidIds() {
+        assertEquals(
+            "copilot --resume=10b5bb49-55bc-4705-91be-b4dc631cf975",
+            adapter.launchConversationCommand("", "10b5bb49-55bc-4705-91be-b4dc631cf975")
+        )
+        assertEquals(
+            "cd \"/data/project\" && copilot --resume=cop_1",
+            adapter.launchConversationCommand("/data/project", " cop_1 ")
+        )
+        assertEquals("copilot", adapter.launchConversationCommand("", null))
+        assertEquals("copilot", adapter.launchConversationCommand("", "   "))
+        assertEquals(
+            "cd \"/data/project\" && copilot",
+            adapter.launchConversationCommand("/data/project", "../bad;rm -rf /")
+        )
+    }
+
+    @Test
     fun testSendPromptWritesTextAndCarriageReturnAndSetsWorking() {
         val out = ByteArrayOutputStream()
         adapter.sendPrompt(out, "explain git rebase")

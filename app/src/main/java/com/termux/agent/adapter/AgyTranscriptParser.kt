@@ -10,9 +10,11 @@ data class ChatMessage(
 
 object AgyTranscriptParser {
 
-    internal const val READ_LATEST_TRANSCRIPT_COMMAND =
-        "sh -c 'f=\$(ls -t \"\$HOME\"/.gemini/antigravity-cli/brain/*/.system_generated/logs/transcript.jsonl 2>/dev/null | head -n 1); " +
-            "if [ -n \"\$f\" ] && [ -r \"\$f\" ]; then tail -n 120 \"\$f\"; fi'"
+    internal const val READ_TRANSCRIPT_BY_ID_COMMAND =
+        "sh -c 'IFS= read -r id || exit 0; " +
+            "case \"\$id\" in \"\"|*/*|*..*) exit 1 ;; esac; " +
+            "f=\"\$HOME/.gemini/antigravity-cli/brain/\$id/.system_generated/logs/transcript.jsonl\"; " +
+            "if [ -r \"\$f\" ]; then tail -n 200 \"\$f\" | tail -c 450000; fi'"
 
     fun parseLine(jsonLine: String): ChatMessage? {
         val trimmed = jsonLine.trim()
