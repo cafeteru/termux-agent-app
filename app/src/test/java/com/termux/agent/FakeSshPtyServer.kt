@@ -1,5 +1,6 @@
 package com.termux.agent
 
+import com.termux.agent.infrastructure.ssh.*
 import org.apache.sshd.common.keyprovider.KeyPairProvider
 import org.apache.sshd.server.Environment
 import org.apache.sshd.server.ExitCallback
@@ -285,7 +286,7 @@ class FakeSshPtyServer(
                     }
                     val requested = lineBytes.toByteArray().toString(Charsets.UTF_8).trim()
 
-                    if (command == com.termux.agent.adapter.AgyTranscriptParser.READ_TRANSCRIPT_BY_ID_COMMAND) {
+                    if (command == com.termux.agent.infrastructure.agent.AgyTranscriptParser.READ_TRANSCRIPT_BY_ID_COMMAND) {
                         if (requested.isEmpty() || requested.contains("/") || requested.contains("..")) {
                             exitCallback?.onExit(1)
                             return@thread
@@ -300,7 +301,7 @@ class FakeSshPtyServer(
                         return@thread
                     }
 
-                    if (command == com.termux.agent.adapter.CopilotTranscriptParser.READ_TRANSCRIPT_BY_ID_COMMAND) {
+                    if (command == com.termux.agent.infrastructure.agent.CopilotTranscriptParser.READ_TRANSCRIPT_BY_ID_COMMAND) {
                         if (requested.isEmpty() || requested.contains("/") || requested.contains("..")) {
                             exitCallback?.onExit(1)
                             return@thread

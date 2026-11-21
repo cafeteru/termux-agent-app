@@ -1,5 +1,9 @@
 package com.termux.agent
 
+import com.termux.agent.infrastructure.android.AgentForegroundService
+import com.termux.agent.infrastructure.ssh.*
+import com.termux.agent.application.config.AppConfig
+import com.termux.agent.presentation.MainActivity
 import android.app.Application
 import android.app.NotificationManager
 import android.content.Intent
@@ -339,7 +343,7 @@ class MainActivityE2ETest {
                 composeRule.onNodeWithTag("chat_send_button").performClick()
 
                 composeRule.waitUntil(timeoutMillis = 5_000) {
-                    SshSessionManager.agentState.value == com.termux.agent.adapter.AgentState.WORKING &&
+                    SshSessionManager.agentState.value == com.termux.agent.domain.model.AgentState.WORKING &&
                         composeRule.onAllNodesWithText("check git")
                             .fetchSemanticsNodes()
                             .isNotEmpty()

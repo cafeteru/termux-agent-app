@@ -1,5 +1,7 @@
 package com.termux.agent
 
+import com.termux.agent.infrastructure.terminal.AnsiTextParser
+import com.termux.agent.infrastructure.ssh.*
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -211,30 +213,30 @@ class SshPtyIntegrationTest {
 
             // User sends prompt via adapter
             assertTrue(SshSessionManager.sendPrompt("check git"))
-            assertEquals(com.termux.agent.adapter.AgentState.WORKING, SshSessionManager.agentState.value)
+            assertEquals(com.termux.agent.domain.model.AgentState.WORKING, SshSessionManager.agentState.value)
 
             // Server prompts for permission
             server.sendOutput("\r\nTool: run_command\r\nCommand: git status\r\nDo you want to allow this execution? [y/n]\r\n")
 
             awaitCondition(timeoutMs = 5_000) {
-                SshSessionManager.agentState.value == com.termux.agent.adapter.AgentState.WAITING_PERMISSION
+                SshSessionManager.agentState.value == com.termux.agent.domain.model.AgentState.WAITING_PERMISSION
             }
             val event = SshSessionManager.adapterEvent.value
-            assertTrue(event is com.termux.agent.adapter.AdapterEvent.PermissionRequired)
-            val perm = event as com.termux.agent.adapter.AdapterEvent.PermissionRequired
+            assertTrue(event is com.termux.agent.domain.model.AdapterEvent.PermissionRequired)
+            val perm = event as com.termux.agent.domain.model.AdapterEvent.PermissionRequired
             assertEquals("run_command", perm.tool)
             assertEquals("git status", perm.command)
 
             // Resolve permission with Allow
             assertTrue(SshSessionManager.resolvePermission(allow = true))
-            assertEquals(com.termux.agent.adapter.AgentState.WORKING, SshSessionManager.agentState.value)
+            assertEquals(com.termux.agent.domain.model.AgentState.WORKING, SshSessionManager.agentState.value)
 
             awaitCondition(timeoutMs = 5_000) {
                 server.receivedRawString().contains("y\r")
             }
 
             SshSessionManager.disconnect()
-            assertEquals(com.termux.agent.adapter.AgentState.IDLE, SshSessionManager.agentState.value)
+            assertEquals(com.termux.agent.domain.model.AgentState.IDLE, SshSessionManager.agentState.value)
         }
     }
 
@@ -271,13 +273,14 @@ class SshPtyIntegrationTest {
             assertEquals("Explain coroutines", SshSessionManager.chatMessages.value[0].content)
 
             SshSessionManager.emitAdapterEventForTesting(
-                com.termux.agent.adapter.AdapterEvent.TurnCompleted("Coroutines are lightweight threads.")
+                com.termux.agent.domain.model.AdapterEvent.TurnCompleted("Coroutines are lightweight threads.")
             )
             assertEquals(2, SshSessionManager.chatMessages.value.size)
             assertEquals("agent", SshSessionManager.chatMessages.value[1].sender)
             assertEquals("Coroutines are lightweight threads.", SshSessionManager.chatMessages.value[1].content)
 
-            val jsonTranscript = """{"step_index": 3, "type": "PLANNER_RESPONSE", "content": "Done task", "created_at": "12:00:00"}"""
+            val jsonTranscript =
+                """{"step_index":3,"type":"assistant.message","content":"Done task","timestamp":"12:00:00"}"""
             SshSessionManager.appendTranscriptLine(jsonTranscript)
             assertEquals(3, SshSessionManager.chatMessages.value.size)
             assertEquals("Done task", SshSessionManager.chatMessages.value[2].content)
@@ -286,7 +289,7 @@ class SshPtyIntegrationTest {
             SshSessionManager.clearChat()
             SshSessionManager.setActiveAdapterById("agy")
             assertTrue(SshSessionManager.sendPrompt("revisa si puedes escribir"))
-            assertEquals(com.termux.agent.adapter.AgentState.WORKING, SshSessionManager.agentState.value)
+            assertEquals(com.termux.agent.domain.model.AgentState.WORKING, SshSessionManager.agentState.value)
 
             server.fakeTranscriptJsonl = """
                 {"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"20:32:52","content":"<USER_REQUEST>\nrevisa si puedes escribir\n</USER_REQUEST>"}
@@ -376,7 +379,7 @@ class SshPtyIntegrationTest {
 
             SshSessionManager.setActiveAdapterById("agy")
             assertTrue(SshSessionManager.sendPrompt("check git"))
-            assertEquals(com.termux.agent.adapter.AgentState.WORKING, SshSessionManager.agentState.value)
+            assertEquals(com.termux.agent.domain.model.AgentState.WORKING, SshSessionManager.agentState.value)
 
             server.sendOutput(
                 "\r\nCommand\r\n────────────────────────────────────────────────\r\n" +
@@ -388,16 +391,16 @@ class SshPtyIntegrationTest {
             )
 
             awaitCondition(timeoutMs = 5_000) {
-                SshSessionManager.agentState.value == com.termux.agent.adapter.AgentState.WAITING_PERMISSION
+                SshSessionManager.agentState.value == com.termux.agent.domain.model.AgentState.WAITING_PERMISSION
             }
-            val perm = SshSessionManager.adapterEvent.value as? com.termux.agent.adapter.AdapterEvent.PermissionRequired
+            val perm = SshSessionManager.adapterEvent.value as? com.termux.agent.domain.model.AdapterEvent.PermissionRequired
             assertTrue(perm != null)
             assertEquals("Command", perm!!.tool)
             assertEquals(4, perm.options.size)
 
             assertTrue(SshSessionManager.resolvePermission(allow = true, optionIndex = 2))
             assertEquals(null, SshSessionManager.adapterEvent.value)
-            assertEquals(com.termux.agent.adapter.AgentState.WORKING, SshSessionManager.agentState.value)
+            assertEquals(com.termux.agent.domain.model.AgentState.WORKING, SshSessionManager.agentState.value)
 
             awaitCondition(timeoutMs = 5_000) {
                 server.receivedRawString().contains("\u001B[B\u001B[B\r")

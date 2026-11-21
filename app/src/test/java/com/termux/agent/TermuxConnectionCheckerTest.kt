@@ -1,5 +1,7 @@
 package com.termux.agent
 
+import com.termux.agent.infrastructure.terminal.AnsiTextParser
+import com.termux.agent.infrastructure.ssh.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration

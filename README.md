@@ -7,6 +7,12 @@ and **GitHub Copilot CLI (`copilot`)**.
 The APK connects to Termux through its standard OpenSSH server. It does not patch
 either CLI, install a Termux daemon, or require a bridge outside the Android app.
 
+The agent integration follows a hexagonal boundary: Android UI, services, and SSH
+transport consume the `AgentAdapter` port. `AgyAdapter` and `CopilotAdapter` are
+strategies that own agent-specific launch, session discovery, transcript parsing,
+screen detection, prompt delivery, and permission resolution. The orchestration
+layer does not branch on agent IDs.
+
 ## Features
 
 - Persistent SSH PTY connection to `127.0.0.1:8022` through an Android
@@ -146,15 +152,21 @@ Session listing, transcript reads, and workspace browsing use short-lived SSH
 
 ```text
 app/src/main/java/com/termux/agent/
-├── adapter/                  Agent adapters and transcript parsers
-├── AgentForegroundService.kt Notifications and service lifecycle
-├── AgentSessionBrowser.kt    Local session discovery and grouping
-├── SshPtySession.kt          SSH PTY, terminal state, and chat synchronization
-├── TerminalBuffer.kt         ANSI-aware 2D terminal rendering
-├── WorkspaceBrowser.kt       Remote workspace browsing
-├── ChatScreen.kt             Chat and permission UI
-└── MainActivity.kt           Navigation, SSH configuration, and terminal UI
+├── domain/model/             Framework-free agent models and events
+├── application/
+│   ├── config/               App-wide constants
+│   └── port/                 AgentAdapter port
+├── infrastructure/
+│   ├── agent/                Agy/Copilot strategies and transcript parsers
+│   ├── ssh/                  SSH PTY, sessions, and workspace discovery
+│   ├── terminal/             ANSI-aware terminal rendering
+│   └── android/              Foreground service and notifications
+└── presentation/             Jetpack Compose UI and Android entry point
 ```
+
+Dependency direction is `presentation -> application/infrastructure -> domain`.
+Agent-specific branches stay in infrastructure strategies; SSH orchestration,
+Android lifecycle, and UI consume the shared `AgentAdapter` port.
 
 ## Build
 
@@ -206,6 +218,11 @@ Run the tests with:
 ```bash
 gradle testDebugUnitTest --no-daemon
 ```
+
+Tests run on any supported development host. Termux-specific shell contract tests
+use `HostTestSupport` to verify the required `sh`, `python3`, `HOME`, and symlink
+capabilities, then skip with an explicit reason when that runtime is unavailable.
+Core JVM parsing and application tests still run on every host.
 
 GitHub Actions runs the unit and UI test suite on pull requests and pushes to
 `main`. Successful pushes to `main` also build and upload `app-debug.apk`.
