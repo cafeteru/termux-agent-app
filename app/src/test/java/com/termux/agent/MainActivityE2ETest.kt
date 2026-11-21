@@ -7,6 +7,7 @@ import android.content.pm.PackageInfo
 import android.os.Looper
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -19,6 +20,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToKey
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ActivityScenario
@@ -337,7 +339,10 @@ class MainActivityE2ETest {
                 composeRule.onNodeWithTag("chat_send_button").performClick()
 
                 composeRule.waitUntil(timeoutMillis = 5_000) {
-                    SshSessionManager.agentState.value == com.termux.agent.adapter.AgentState.WORKING
+                    SshSessionManager.agentState.value == com.termux.agent.adapter.AgentState.WORKING &&
+                        composeRule.onAllNodesWithText("check git")
+                            .fetchSemanticsNodes()
+                            .isNotEmpty()
                 }
 
                 server.sendOutput(
@@ -473,6 +478,231 @@ class MainActivityE2ETest {
                 composeRule.waitUntil(timeoutMillis = 5_000) {
                     server.receivedCommands.contains("cd \"/home/termux/termux-agent-app\" && agy")
                 }
+            }
+        }
+    }
+
+    @Test
+    fun agySessionsDrawerListsFiltersResumesAndCreatesNewSession() {
+        FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
+            server.fakeAgySessions = listOf(
+                AgentSessionSummary(
+                    id = "sess-1",
+                    title = "Fix auth bug",
+                    workspacePath = "/home/termux/termux-agent-app",
+                    lastModifiedIso = "2026-11-21 08:10:00+00:00",
+                    stepCount = 4,
+                    isRunning = true
+                ),
+                AgentSessionSummary(
+                    id = "sess-2",
+                    title = "Notes cleanup",
+                    workspacePath = "/home/termux/notes",
+                    lastModifiedIso = "2026-11-20 12:00:00+00:00",
+                    stepCount = 2,
+                    isRunning = false
+                )
+            )
+            server.fakeTranscripts["sess-1"] = """
+                {"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"08:10:00","content":"<USER_REQUEST>\nrevisa auth\n</USER_REQUEST>"}
+                {"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"08:10:02","content":"Auth revisado."}
+            """.trimIndent()
+            server.fakeTranscripts["sess-2"] = """
+                {"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"12:00:00","content":"<USER_REQUEST>\nordena notas\n</USER_REQUEST>"}
+                {"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"12:00:02","content":"Notas ordenadas."}
+            """.trimIndent()
+
+            ActivityScenario.launch(MainActivity::class.java).use {
+                drainStartedServices()
+
+                val connectState = connectTestServer(server.port)
+                assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
+
+                composeRule.onNodeWithTag("agent_session_bar")
+                    .assertIsDisplayed()
+                    .assertTextContains("Nueva conversación", substring = true)
+                assertTrue(SshSessionManager.chatMessages.value.isEmpty())
+
+                // Open drawer from quick-access session bar
+                composeRule.onNodeWithTag("agent_session_bar").performClick()
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    composeRule.onAllNodesWithTag("drawer_workspace_header_/home/termux/termux-agent-app")
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
+                }
+                composeRule.onNodeWithText("Directorios y sesiones").assertIsDisplayed()
+                composeRule.onNodeWithTag("drawer_workspace_header_/home/termux/termux-agent-app")
+                    .assertIsDisplayed()
+                    .assertTextContains("termux-agent-app (1)", substring = true)
+                composeRule.onNodeWithTag("drawer_workspace_header_/home/termux/notes")
+                    .assertIsDisplayed()
+                    .assertTextContains("notes (1)", substring = true)
+
+                // First directory starts expanded; second directory starts collapsed
+                composeRule.onNodeWithTag("drawer_session_item_sess-1")
+                    .assertIsDisplayed()
+                    .assertTextContains("Fix auth bug", substring = true)
+                assertTrue(
+                    composeRule.onAllNodesWithTag("drawer_session_item_sess-2")
+                        .fetchSemanticsNodes()
+                        .isEmpty()
+                )
+
+                // Expand and collapse second directory
+                composeRule.onNodeWithTag("drawer_workspace_header_/home/termux/notes")
+                    .performSemanticsAction(SemanticsActions.OnClick)
+                composeRule.waitForIdle()
+                composeRule.onNodeWithTag("drawer_sessions_list").performScrollToKey("sess:sess-2")
+                composeRule.onNodeWithTag("drawer_session_item_sess-2")
+                    .assertIsDisplayed()
+                    .assertTextContains("Notes cleanup", substring = true)
+                composeRule.onNodeWithTag("drawer_workspace_header_/home/termux/notes")
+                    .performSemanticsAction(SemanticsActions.OnClick)
+                composeRule.waitForIdle()
+                assertTrue(
+                    composeRule.onAllNodesWithTag("drawer_session_item_sess-2")
+                        .fetchSemanticsNodes()
+                        .isEmpty()
+                )
+
+                // Select session 1 -> closes drawer, updates workspace, loads its transcript, runs agy --conversation sess-1
+                composeRule.onNodeWithTag("drawer_sessions_list").performScrollToKey("sess:sess-1")
+                composeRule.onNodeWithTag("drawer_session_item_sess-1").performSemanticsAction(SemanticsActions.OnClick)
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    composeRule.onAllNodesWithText("Auth revisado.")
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
+                }
+                assertEquals("sess-1", SshSessionManager.activeConversationId.value)
+                assertEquals("/home/termux/termux-agent-app", SshConfigStore.loadWorkspacePath(app))
+                composeRule.onNodeWithTag("agent_session_bar")
+                    .assertTextContains("Fix auth bug", substring = true)
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    server.receivedCommands.contains("cd \"/home/termux/termux-agent-app\" && agy --conversation sess-1")
+                }
+
+                // Re-open drawer -> workspace filter narrows directories to current project and clears back to all
+                composeRule.onNodeWithTag("agent_session_bar").performClick()
+                composeRule.waitForIdle()
+                composeRule.onNodeWithTag("drawer_sessions_filter_workspace").performSemanticsAction(SemanticsActions.OnClick)
+                composeRule.waitForIdle()
+                composeRule.onNodeWithTag("drawer_workspace_header_/home/termux/termux-agent-app").assertIsDisplayed()
+                assertTrue(
+                    composeRule.onAllNodesWithTag("drawer_workspace_header_/home/termux/notes")
+                        .fetchSemanticsNodes()
+                        .isEmpty()
+                )
+                composeRule.onNodeWithTag("drawer_sessions_filter_all").performSemanticsAction(SemanticsActions.OnClick)
+                composeRule.waitForIdle()
+                composeRule.onNodeWithTag("drawer_workspace_header_/home/termux/notes").assertIsDisplayed()
+
+                // Tap "+" on notes directory -> switches workspace to /home/termux/notes and starts clean agy session
+                composeRule.onNodeWithTag("drawer_workspace_new_session_/home/termux/notes")
+                    .performSemanticsAction(SemanticsActions.OnClick)
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    SshSessionManager.activeConversationId.value == null &&
+                        SshSessionManager.chatMessages.value.isEmpty() &&
+                        server.receivedCommands.contains("cd \"/home/termux/notes\" && agy")
+                }
+                assertEquals("/home/termux/notes", SshConfigStore.loadWorkspacePath(app))
+                composeRule.onNodeWithTag("agent_session_bar")
+                    .assertTextContains("Nueva conversación", substring = true)
+
+                // Quick-access "+" icon on ChatScreen also starts a clean session
+                composeRule.onNodeWithTag("chat_new_session_button").performClick()
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    server.shellSessionCount.get() >= 3
+                }
+            }
+        }
+    }
+
+    @Test
+    fun copilotSessionsDrawerListsResumesAndStartsNewSession() {
+        FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
+            server.fakeCopilotSessions = listOf(
+                AgentSessionSummary(
+                    id = "cop-1",
+                    title = "Review Agent Skills",
+                    workspacePath = "/home/termux/termux-agent-app",
+                    lastModifiedIso = "2026-11-21 08:10:00+00:00",
+                    stepCount = 4,
+                    isRunning = false
+                ),
+                AgentSessionSummary(
+                    id = "cop-2",
+                    title = "Notes Check",
+                    workspacePath = "/home/termux/notes",
+                    lastModifiedIso = "2026-11-20 12:00:00+00:00",
+                    stepCount = 2,
+                    isRunning = false
+                )
+            )
+            server.fakeCopilotTranscripts["cop-1"] = """
+                {"type":"user.message","step_index":0,"timestamp":"08:10:00","content":"revisa skills","tools":[]}
+                {"type":"assistant.message","step_index":1,"timestamp":"08:10:02","content":"Skills revisadas.","tools":[]}
+            """.trimIndent()
+            server.fakeCopilotTranscripts["cop-2"] = """
+                {"type":"user.message","step_index":0,"timestamp":"12:00:00","content":"mira notas","tools":[]}
+                {"type":"assistant.message","step_index":1,"timestamp":"12:00:02","content":"Notas listas.","tools":[]}
+            """.trimIndent()
+
+            ActivityScenario.launch(MainActivity::class.java).use {
+                drainStartedServices()
+
+                val connectState = connectTestServer(server.port)
+                assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
+
+                // Switch to Copilot in Drawer
+                composeRule.onNodeWithContentDescription("Abrir menú").performClick()
+                composeRule.waitForIdle()
+                composeRule.onNodeWithTag("drawer_option_copilot").performSemanticsAction(SemanticsActions.OnClick)
+                composeRule.waitForIdle()
+
+                composeRule.onNodeWithText("GitHub Copilot CLI").assertIsDisplayed()
+                composeRule.onNodeWithTag("agent_session_bar")
+                    .assertIsDisplayed()
+                    .assertTextContains("Nueva conversación", substring = true)
+
+                // Open drawer from session bar -> see Copilot directories & sessions
+                composeRule.onNodeWithTag("agent_session_bar").performClick()
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    composeRule.onAllNodesWithTag("drawer_session_item_cop-1")
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
+                }
+                composeRule.onNodeWithTag("drawer_workspace_header_/home/termux/termux-agent-app")
+                    .assertIsDisplayed()
+                    .assertTextContains("termux-agent-app (1)", substring = true)
+                composeRule.onNodeWithTag("drawer_session_item_cop-1")
+                    .assertIsDisplayed()
+                    .assertTextContains("Review Agent Skills", substring = true)
+
+                // Select cop-1 -> loads transcript and runs copilot --resume=cop-1
+                composeRule.onNodeWithTag("drawer_session_item_cop-1").performSemanticsAction(SemanticsActions.OnClick)
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    composeRule.onAllNodesWithText("Skills revisadas.")
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
+                }
+                assertEquals("cop-1", SshSessionManager.activeConversationId.value)
+                composeRule.onNodeWithTag("agent_session_bar")
+                    .assertTextContains("Review Agent Skills", substring = true)
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    server.receivedCommands.contains("cd \"/home/termux/termux-agent-app\" && copilot --resume=cop-1")
+                }
+
+                // Tap "+" on notes directory -> switches workspace and launches fresh copilot
+                composeRule.onNodeWithTag("agent_session_bar").performClick()
+                composeRule.waitForIdle()
+                composeRule.onNodeWithTag("drawer_workspace_new_session_/home/termux/notes")
+                    .performSemanticsAction(SemanticsActions.OnClick)
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    SshSessionManager.activeConversationId.value == null &&
+                        SshSessionManager.chatMessages.value.isEmpty() &&
+                        server.receivedCommands.contains("cd \"/home/termux/notes\" && copilot")
+                }
+                assertEquals("/home/termux/notes", SshConfigStore.loadWorkspacePath(app))
             }
         }
     }

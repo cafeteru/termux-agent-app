@@ -27,6 +27,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -58,6 +59,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
@@ -83,10 +87,15 @@ fun ChatScreen(
     onSendPrompt: (String) -> Unit,
     onResolvePermission: (allow: Boolean, optionIndex: Int?) -> Unit,
     onClearChat: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    activeConversationId: String? = null,
+    activeConversationTitle: String? = null,
+    onOpenSessions: () -> Unit = {},
+    onNewSession: () -> Unit = {}
 ) {
     var promptInput by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val supportsSessions = AgentSessionBrowser.supportsSessions(activeAdapter.id)
     val hasPermissionCard = agentState == AgentState.WAITING_PERMISSION &&
         adapterEvent is AdapterEvent.PermissionRequired
 
@@ -114,6 +123,7 @@ fun ChatScreen(
             activeAdapter = activeAdapter,
             agentState = agentState,
             onLaunchAgent = onLaunchAgent,
+            onNewSession = onNewSession,
             onClearChat = onClearChat,
             modifier = Modifier
                 .fillMaxWidth()
@@ -129,6 +139,18 @@ fun ChatScreen(
         )
 
         HorizontalDivider()
+
+        if (supportsSessions) {
+            AgentSessionBar(
+                activeConversationId = activeConversationId,
+                activeConversationTitle = activeConversationTitle,
+                onOpenSessions = onOpenSessions,
+                onNewSession = onNewSession,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            HorizontalDivider()
+        }
 
         Box(
             modifier = Modifier
@@ -151,8 +173,8 @@ fun ChatScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 12.dp),
-                    contentPadding = PaddingValues(vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    contentPadding = PaddingValues(vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(messages) { message ->
                         ChatMessageItem(message = message)
@@ -193,10 +215,12 @@ private fun AgentControlBar(
     activeAdapter: AgentAdapter,
     agentState: AgentState,
     onLaunchAgent: () -> Unit,
+    onNewSession: () -> Unit,
     onClearChat: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    val supportsSessions = AgentSessionBrowser.supportsSessions(activeAdapter.id)
 
     Row(
         modifier = modifier,
@@ -241,6 +265,22 @@ private fun AgentControlBar(
                     expanded = menuExpanded,
                     onDismissRequest = { menuExpanded = false }
                 ) {
+                    if (supportsSessions) {
+                        DropdownMenuItem(
+                            text = { Text("Nueva conversación") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                onNewSession()
+                            }
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("Iniciar agente") },
                         leadingIcon = {
@@ -276,6 +316,98 @@ private fun AgentControlBar(
 }
 
 @Composable
+private fun AgentSessionBar(
+    activeConversationId: String?,
+    activeConversationTitle: String?,
+    onOpenSessions: () -> Unit,
+    onNewSession: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val title = activeConversationTitle?.takeIf { it.isNotBlank() } ?: "Nueva conversación"
+    val subtitle = if (activeConversationId != null) {
+        "Sesión ${activeConversationId.take(8)} · Toca para cambiar"
+    } else {
+        "Toca para elegir o retomar una sesión"
+    }
+    Row(
+        modifier = modifier
+            .defaultMinSize(minHeight = 48.dp)
+            .padding(start = 12.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .defaultMinSize(minHeight = 48.dp)
+                .clickable(onClick = onOpenSessions)
+                .testTag("agent_session_bar")
+                .semantics(mergeDescendants = true) {}
+                .padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                imageVector = ChatBubbleIcon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Text(
+                text = "Sesiones",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        IconButton(
+            onClick = onNewSession,
+            modifier = Modifier.testTag("chat_new_session_button")
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = "Nueva conversación",
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+internal val ChatBubbleIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "ChatBubbleOutline",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M20,2H4c-1.1,0 -2,0.9 -2,2v18l4,-4h14c1.1,0 2,-0.9 2,-2V4c0,-1.1 -0.9,-2 -2,-2zm0,14H6l-2,2V4h16v12z"
+        ).toNodes(),
+        fill = SolidColor(Color.Black)
+    ).build()
+}
+
+@Composable
 private fun WorkspaceSelectorBar(
     selectedWorkspacePath: String,
     onClick: () -> Unit,
@@ -287,7 +419,7 @@ private fun WorkspaceSelectorBar(
             .clickable(onClick = onClick)
             .testTag("workspace_selector_bar")
             .semantics(mergeDescendants = true) {}
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -453,8 +585,8 @@ private fun PermissionRequestCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
                 text = "Confirmación requerida",
@@ -489,7 +621,7 @@ private fun PermissionRequestCard(
             if (event.options.size > 2) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     event.options.forEachIndexed { index, option ->
                         val isDeny = DENY_OPTION_REGEX.containsMatchIn(option.trim())
@@ -497,7 +629,7 @@ private fun PermissionRequestCard(
                             .fillMaxWidth()
                             .defaultMinSize(minHeight = 48.dp)
                             .testTag("permission_option_$index")
-                        val buttonPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+                        val buttonPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                         val labelContent: @Composable () -> Unit = {
                             Text(
                                 text = "${index + 1}. $option",

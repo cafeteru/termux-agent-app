@@ -60,10 +60,4 @@ tasks.withType<Test>().configureEach {
         showCauses = true
         showStackTraces = true
     }
-    val isLinuxArm64 = System.getProperty("os.name").equals("Linux", ignoreCase = true) &&
-        System.getProperty("os.arch") in setOf("aarch64", "arm64")
-    if (isLinuxArm64) {
-        // shortcut: Robolectric's conscrypt/nativeruntime lacks linux-aarch64 binaries; runs on x86_64 CI
-        exclude("**/MainActivityE2ETest.class")
-    }
 }

@@ -72,6 +72,9 @@ Each agent implements the common `AgentAdapter` interface:
      ```bash
      gradle testDebugUnitTest assembleDebug --no-daemon
      ```
+   - **Robolectric & Compose E2E tests run natively on Termux (`aarch64`) without `proot`:**
+     - Tests annotated with `@ConscryptMode(ConscryptMode.Mode.OFF)` and `@GraphicsMode(GraphicsMode.Mode.LEGACY)` (such as `MainActivityE2ETest` and `AgentForegroundServiceTest`) avoid `x86_64`-only `libconscrypt_openjdk_jni-linux-x86_64.so` and `librobolectric-nativeruntime.so`, so `gradle testDebugUnitTest --no-daemon` runs the complete JVM, SSH integration, and Compose UI E2E suite directly in Termux before pushing or creating a PR.
+     - `proot-distro` with an `x86_64` rootfs (`proot-distro install -a x86_64 debian` + `qemu-user-x86-64`) would only be required if a future test explicitly needed `GraphicsMode.NATIVE` or Conscrypt.
 3. **On-Device APK Installation (Android 15):**
    - After implementing any app feature or fix, always build the debug APK (`gradle assembleDebug --no-daemon` or `gradle testDebugUnitTest assembleDebug --no-daemon`) and copy it to shared Downloads so it is immediately ready to test on-device without needing a follow-up request:
      ```bash

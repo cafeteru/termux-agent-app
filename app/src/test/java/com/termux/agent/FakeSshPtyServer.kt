@@ -14,7 +14,9 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.KeyPairGenerator
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 
 /**
@@ -27,9 +29,16 @@ class FakeSshPtyServer(
     private val fakeDirectories: Map<String, List<String>> = DEFAULT_FAKE_DIRECTORIES
 ) : AutoCloseable {
     val receivedCommands = CopyOnWriteArrayList<String>()
+    val shellSessionCount = AtomicInteger(0)
     private val rawBytes = ByteArrayOutputStream()
     @Volatile
     var fakeTranscriptJsonl: String = ""
+    @Volatile
+    var fakeAgySessions: List<AgentSessionSummary> = emptyList()
+    @Volatile
+    var fakeCopilotSessions: List<AgentSessionSummary> = emptyList()
+    val fakeTranscripts = ConcurrentHashMap<String, String>()
+    val fakeCopilotTranscripts = ConcurrentHashMap<String, String>()
     @Volatile
     private var activeCommand: FakePtyCommand? = null
 
@@ -47,10 +56,20 @@ class FakeSshPtyServer(
             username == expectedUser
         }
         shellFactory = ShellFactory {
+            shellSessionCount.incrementAndGet()
             FakePtyCommand(receivedCommands, rawBytes).also { activeCommand = it }
         }
         commandFactory = CommandFactory { _, command ->
-            FakeExecCommand(command, fakeHome, fakeDirectories) { fakeTranscriptJsonl }
+            FakeExecCommand(
+                command = command,
+                fakeHome = fakeHome,
+                fakeDirectories = fakeDirectories,
+                agySessionsProvider = { fakeAgySessions },
+                copilotSessionsProvider = { fakeCopilotSessions },
+                agyTranscriptsProvider = fakeTranscripts,
+                copilotTranscriptsProvider = fakeCopilotTranscripts,
+                legacyTranscriptProvider = { fakeTranscriptJsonl }
+            )
         }
         start()
     }
@@ -74,6 +93,7 @@ class FakeSshPtyServer(
         private val receivedCommands: CopyOnWriteArrayList<String>,
         private val rawBytes: ByteArrayOutputStream
     ) : Command {
+        private val outputLock = Any()
         private var input: InputStream? = null
         private var output: OutputStream? = null
         private var exitCallback: ExitCallback? = null
@@ -97,16 +117,20 @@ class FakeSshPtyServer(
 
         fun sendOutput(text: String) {
             val out = output ?: return
-            out.write(text.toByteArray(Charsets.UTF_8))
-            out.flush()
+            synchronized(outputLock) {
+                out.write(text.toByteArray(Charsets.UTF_8))
+                out.flush()
+            }
         }
 
         override fun start(channel: ChannelSession?, env: Environment?) {
             val out = output ?: return
             val inp = input ?: return
 
-            out.write("\u001B[?2004h\u001B[1;32mtermux@local\u001B[0m:~$ ".toByteArray(Charsets.UTF_8))
-            out.flush()
+            synchronized(outputLock) {
+                out.write("\u001B[?2004h\u001B[1;32mtermux@local\u001B[0m:~$ ".toByteArray(Charsets.UTF_8))
+                out.flush()
+            }
 
             worker = thread(start = true, isDaemon = true, name = "fake-ssh-pty") {
                 val lineBytes = ByteArrayOutputStream()
@@ -151,8 +175,10 @@ class FakeSshPtyServer(
                 exitCallback?.onExit(0)
                 return false
             }
-            out.write("ACK:$cmd\r\n".toByteArray(Charsets.UTF_8))
-            out.flush()
+            synchronized(outputLock) {
+                out.write("ACK:$cmd\r\n".toByteArray(Charsets.UTF_8))
+                out.flush()
+            }
             return true
         }
 
@@ -167,7 +193,11 @@ class FakeSshPtyServer(
         private val command: String,
         private val fakeHome: String,
         private val fakeDirectories: Map<String, List<String>>,
-        private val transcriptProvider: () -> String = { "" }
+        private val agySessionsProvider: () -> List<AgentSessionSummary> = { emptyList() },
+        private val copilotSessionsProvider: () -> List<AgentSessionSummary> = { emptyList() },
+        private val agyTranscriptsProvider: Map<String, String> = emptyMap(),
+        private val copilotTranscriptsProvider: Map<String, String> = emptyMap(),
+        private val legacyTranscriptProvider: () -> String = { "" }
     ) : Command {
         private var input: InputStream? = null
         private var output: OutputStream? = null
@@ -194,10 +224,51 @@ class FakeSshPtyServer(
 
             worker = thread(start = true, isDaemon = true, name = "fake-ssh-exec") {
                 try {
-                    if (command == com.termux.agent.adapter.AgyTranscriptParser.READ_LATEST_TRANSCRIPT_COMMAND) {
-                        val transcript = transcriptProvider()
-                        if (transcript.isNotEmpty()) {
-                            out.write(transcript.toByteArray(Charsets.UTF_8))
+                    if (command == AgentSessionBrowser.LIST_AGY_SESSIONS_COMMAND ||
+                        command == AgentSessionBrowser.LIST_COPILOT_SESSIONS_COMMAND
+                    ) {
+                        val isAgy = command == AgentSessionBrowser.LIST_AGY_SESSIONS_COMMAND
+                        val sessions = if (isAgy) agySessionsProvider() else copilotSessionsProvider()
+                        val payload = buildString {
+                            append(AgentSessionBrowser.MARKER)
+                            for (session in sessions) {
+                                val wsField = if (isAgy) {
+                                    if (session.workspacePath.isNotBlank()) "[\"file://${session.workspacePath}\"]" else "[]"
+                                } else {
+                                    session.workspacePath
+                                }
+                                append(session.id).append('\t')
+                                append(session.title).append('\t')
+                                append(wsField).append('\t')
+                                append(session.lastModifiedIso).append('\t')
+                                append(session.stepCount).append('\t')
+                                append(if (session.isRunning) "1" else "0").append('\n')
+                            }
+                        }
+                        out.write(payload.toByteArray(Charsets.UTF_8))
+                        out.flush()
+                        exitCallback?.onExit(0)
+                        return@thread
+                    }
+
+                    if (command == AgentSessionBrowser.LIST_AGY_IDS_COMMAND) {
+                        val ids = linkedSetOf<String>()
+                        ids.addAll(agyTranscriptsProvider.keys)
+                        if (legacyTranscriptProvider().isNotEmpty()) {
+                            ids.add("default-live-session")
+                        }
+                        if (ids.isNotEmpty()) {
+                            out.write((ids.joinToString("\n") + "\n").toByteArray(Charsets.UTF_8))
+                            out.flush()
+                        }
+                        exitCallback?.onExit(0)
+                        return@thread
+                    }
+
+                    if (command == AgentSessionBrowser.LIST_COPILOT_IDS_COMMAND) {
+                        val ids = copilotTranscriptsProvider.keys.toList()
+                        if (ids.isNotEmpty()) {
+                            out.write((ids.joinToString("\n") + "\n").toByteArray(Charsets.UTF_8))
                             out.flush()
                         }
                         exitCallback?.onExit(0)
@@ -213,6 +284,36 @@ class FakeSshPtyServer(
                         }
                     }
                     val requested = lineBytes.toByteArray().toString(Charsets.UTF_8).trim()
+
+                    if (command == com.termux.agent.adapter.AgyTranscriptParser.READ_TRANSCRIPT_BY_ID_COMMAND) {
+                        if (requested.isEmpty() || requested.contains("/") || requested.contains("..")) {
+                            exitCallback?.onExit(1)
+                            return@thread
+                        }
+                        val transcript = agyTranscriptsProvider[requested]
+                            ?: if (requested == "default-live-session") legacyTranscriptProvider() else ""
+                        if (transcript.isNotEmpty()) {
+                            out.write(transcript.toByteArray(Charsets.UTF_8))
+                            out.flush()
+                        }
+                        exitCallback?.onExit(0)
+                        return@thread
+                    }
+
+                    if (command == com.termux.agent.adapter.CopilotTranscriptParser.READ_TRANSCRIPT_BY_ID_COMMAND) {
+                        if (requested.isEmpty() || requested.contains("/") || requested.contains("..")) {
+                            exitCallback?.onExit(1)
+                            return@thread
+                        }
+                        val transcript = copilotTranscriptsProvider[requested].orEmpty()
+                        if (transcript.isNotEmpty()) {
+                            out.write(transcript.toByteArray(Charsets.UTF_8))
+                            out.flush()
+                        }
+                        exitCallback?.onExit(0)
+                        return@thread
+                    }
+
                     if (command != WorkspaceBrowser.LIST_DIRECTORIES_COMMAND) {
                         exitCallback?.onExit(127)
                         return@thread

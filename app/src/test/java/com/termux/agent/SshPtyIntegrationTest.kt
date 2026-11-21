@@ -405,6 +405,210 @@ class SshPtyIntegrationTest {
         }
     }
 
+    @Test
+    fun agySessionManagementIsolatesSessionsResumesAndStartsCleanly() {
+        FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
+            val sess1 = AgentSessionSummary(
+                id = "sess-1",
+                title = "Fix auth bug",
+                workspacePath = "/home/termux/termux-agent-app",
+                lastModifiedIso = "2026-11-21 08:10:00+00:00",
+                stepCount = 4,
+                isRunning = false
+            )
+            val sess2 = AgentSessionSummary(
+                id = "sess-2",
+                title = "Notes cleanup",
+                workspacePath = "/home/termux/notes",
+                lastModifiedIso = "2026-11-20 12:00:00+00:00",
+                stepCount = 2,
+                isRunning = false
+            )
+            server.fakeAgySessions = listOf(sess1, sess2)
+            server.fakeTranscripts["sess-1"] = """
+                {"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"08:10:00","content":"<USER_REQUEST>\nrevisa auth\n</USER_REQUEST>"}
+                {"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"08:10:02","content":"Auth revisado."}
+            """.trimIndent()
+            server.fakeTranscripts["sess-2"] = """
+                {"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"12:00:00","content":"<USER_REQUEST>\nordena notas\n</USER_REQUEST>"}
+                {"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"12:00:02","content":"Notas ordenadas."}
+            """.trimIndent()
+
+            val state = SshSessionManager.connect(
+                isTermuxInstalled = { true },
+                config = SshConfig(
+                    host = "127.0.0.1",
+                    port = server.port,
+                    username = "termux",
+                    authMethod = AuthMethod.PASSWORD,
+                    password = "secret"
+                ),
+                timeoutMs = 5_000
+            )
+            assertTrue("Expected Connected but got $state", state is ConnectionState.Connected)
+
+            awaitCondition(timeoutMs = 5_000) {
+                SshSessionManager.agentSessions.value.size == 2
+            }
+            // Connecting must NOT blindly load prior transcripts
+            Thread.sleep(1_100)
+            assertTrue(SshSessionManager.chatMessages.value.isEmpty())
+            assertEquals(null, SshSessionManager.activeConversationId.value)
+
+            // Resume session 1 -> loads only sess-1 and launches agy --conversation sess-1
+            assertTrue(SshSessionManager.openConversation(sess1))
+            awaitCondition(timeoutMs = 5_000) {
+                SshSessionManager.chatMessages.value.any { it.content == "Auth revisado." }
+            }
+            assertEquals("sess-1", SshSessionManager.activeConversationId.value)
+            assertEquals("Fix auth bug", SshSessionManager.activeConversationTitle.value)
+            assertTrue(SshSessionManager.chatMessages.value.none { it.content.contains("Notas ordenadas") })
+            awaitCondition(timeoutMs = 5_000) {
+                server.receivedCommands.contains("cd \"/home/termux/termux-agent-app\" && agy --conversation sess-1")
+            }
+
+            // Switch to session 2 -> reopens clean PTY channel and replaces messages without leakage
+            assertTrue(SshSessionManager.openConversation(sess2))
+            awaitCondition(timeoutMs = 5_000) {
+                SshSessionManager.chatMessages.value.any { it.content == "Notas ordenadas." }
+            }
+            assertTrue("Expected new PTY channel on switch", server.shellSessionCount.get() >= 2)
+            assertEquals("sess-2", SshSessionManager.activeConversationId.value)
+            assertEquals("Notes cleanup", SshSessionManager.activeConversationTitle.value)
+            assertTrue(SshSessionManager.chatMessages.value.none { it.content.contains("Auth revisado") })
+            awaitCondition(timeoutMs = 5_000) {
+                server.receivedCommands.contains("cd \"/home/termux/notes\" && agy --conversation sess-2")
+            }
+
+            // Start new session -> clears chat, reopens clean PTY, ignores parallel updates to sess-1, binds only new ID
+            assertTrue(SshSessionManager.startNewSession("/home/termux/termux-agent-app"))
+            assertTrue(SshSessionManager.chatMessages.value.isEmpty())
+            assertEquals(null, SshSessionManager.activeConversationId.value)
+            assertTrue("Expected new PTY channel on new session", server.shellSessionCount.get() >= 3)
+            awaitCondition(timeoutMs = 5_000) {
+                server.receivedCommands.contains("cd \"/home/termux/termux-agent-app\" && agy")
+            }
+
+            server.fakeTranscripts["sess-1"] = server.fakeTranscripts["sess-1"] + "\n" +
+                """{"step_index":2,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"08:12:00","content":"Mensaje paralelo ignorado"}"""
+            Thread.sleep(1_200)
+            assertTrue(SshSessionManager.chatMessages.value.isEmpty())
+            assertEquals(null, SshSessionManager.activeConversationId.value)
+
+            server.fakeTranscripts["sess-new-3"] = """
+                {"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"08:15:00","content":"<USER_REQUEST>\nnueva sesion\n</USER_REQUEST>"}
+                {"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"08:15:02","content":"Sesión nueva lista."}
+            """.trimIndent()
+            awaitCondition(timeoutMs = 5_000) {
+                SshSessionManager.activeConversationId.value == "sess-new-3" &&
+                    SshSessionManager.chatMessages.value.any { it.content == "Sesión nueva lista." }
+            }
+            assertEquals(2, SshSessionManager.chatMessages.value.size)
+        }
+    }
+
+    @Test
+    fun copilotSessionManagementIsolatesSessionsResumesAndStartsCleanly() {
+        FakeSshPtyServer(expectedUser = "termux", expectedPassword = "secret").use { server ->
+            val cop1 = AgentSessionSummary(
+                id = "cop-1",
+                title = "Review Agent Skills",
+                workspacePath = "/home/termux/termux-agent-app",
+                lastModifiedIso = "2026-11-21 08:10:00+00:00",
+                stepCount = 4,
+                isRunning = false
+            )
+            val cop2 = AgentSessionSummary(
+                id = "cop-2",
+                title = "Notes Check",
+                workspacePath = "/home/termux/notes",
+                lastModifiedIso = "2026-11-20 12:00:00+00:00",
+                stepCount = 2,
+                isRunning = false
+            )
+            server.fakeCopilotSessions = listOf(cop1, cop2)
+            server.fakeCopilotTranscripts["cop-1"] = """
+                {"type":"user.message","step_index":0,"timestamp":"08:10:00","content":"revisa skills","tools":[]}
+                {"type":"assistant.message","step_index":1,"timestamp":"08:10:02","content":"Skills revisadas.","tools":["view: AGENTS.md"]}
+            """.trimIndent()
+            server.fakeCopilotTranscripts["cop-2"] = """
+                {"type":"user.message","step_index":0,"timestamp":"12:00:00","content":"mira notas","tools":[]}
+                {"type":"assistant.message","step_index":1,"timestamp":"12:00:02","content":"Notas listas.","tools":[]}
+            """.trimIndent()
+
+            val state = SshSessionManager.connect(
+                isTermuxInstalled = { true },
+                config = SshConfig(
+                    host = "127.0.0.1",
+                    port = server.port,
+                    username = "termux",
+                    authMethod = AuthMethod.PASSWORD,
+                    password = "secret"
+                ),
+                timeoutMs = 5_000
+            )
+            assertTrue("Expected Connected but got $state", state is ConnectionState.Connected)
+
+            SshSessionManager.setActiveAdapterById("copilot")
+            awaitCondition(timeoutMs = 5_000) {
+                SshSessionManager.agentSessions.value.map { it.id } == listOf("cop-1", "cop-2")
+            }
+            Thread.sleep(1_100)
+            assertTrue(SshSessionManager.chatMessages.value.isEmpty())
+            assertEquals(null, SshSessionManager.activeConversationId.value)
+
+            // Resume cop-1 -> loads only cop-1 and runs copilot --resume=cop-1
+            assertTrue(SshSessionManager.openConversation(cop1))
+            awaitCondition(timeoutMs = 5_000) {
+                SshSessionManager.chatMessages.value.any { it.content == "Skills revisadas." }
+            }
+            assertEquals("cop-1", SshSessionManager.activeConversationId.value)
+            assertEquals("Review Agent Skills", SshSessionManager.activeConversationTitle.value)
+            assertEquals(listOf("view: AGENTS.md"), SshSessionManager.chatMessages.value[1].toolCalls)
+            assertTrue(SshSessionManager.chatMessages.value.none { it.content.contains("Notas listas") })
+            awaitCondition(timeoutMs = 5_000) {
+                server.receivedCommands.contains("cd \"/home/termux/termux-agent-app\" && copilot --resume=cop-1")
+            }
+
+            // Switch to cop-2 -> reopens clean PTY channel and isolates messages
+            assertTrue(SshSessionManager.openConversation(cop2))
+            awaitCondition(timeoutMs = 5_000) {
+                SshSessionManager.chatMessages.value.any { it.content == "Notas listas." }
+            }
+            assertTrue("Expected new PTY channel on Copilot switch", server.shellSessionCount.get() >= 2)
+            assertEquals("cop-2", SshSessionManager.activeConversationId.value)
+            assertTrue(SshSessionManager.chatMessages.value.none { it.content.contains("Skills revisadas") })
+            awaitCondition(timeoutMs = 5_000) {
+                server.receivedCommands.contains("cd \"/home/termux/notes\" && copilot --resume=cop-2")
+            }
+
+            // Start new Copilot session -> ignores parallel cop-1 updates, binds cop-new-3
+            assertTrue(SshSessionManager.startNewSession("/home/termux/termux-agent-app"))
+            assertTrue(SshSessionManager.chatMessages.value.isEmpty())
+            assertEquals(null, SshSessionManager.activeConversationId.value)
+            assertTrue("Expected new PTY channel on new Copilot session", server.shellSessionCount.get() >= 3)
+            awaitCondition(timeoutMs = 5_000) {
+                server.receivedCommands.contains("cd \"/home/termux/termux-agent-app\" && copilot")
+            }
+
+            server.fakeCopilotTranscripts["cop-1"] = server.fakeCopilotTranscripts["cop-1"] + "\n" +
+                """{"type":"assistant.message","step_index":2,"timestamp":"08:12:00","content":"Mensaje copilot paralelo ignorado","tools":[]}"""
+            Thread.sleep(1_200)
+            assertTrue(SshSessionManager.chatMessages.value.isEmpty())
+            assertEquals(null, SshSessionManager.activeConversationId.value)
+
+            server.fakeCopilotTranscripts["cop-new-3"] = """
+                {"type":"user.message","step_index":0,"timestamp":"08:15:00","content":"nueva sesion copilot","tools":[]}
+                {"type":"assistant.message","step_index":1,"timestamp":"08:15:02","content":"Copilot listo.","tools":[]}
+            """.trimIndent()
+            awaitCondition(timeoutMs = 5_000) {
+                SshSessionManager.activeConversationId.value == "cop-new-3" &&
+                    SshSessionManager.chatMessages.value.any { it.content == "Copilot listo." }
+            }
+            assertEquals(2, SshSessionManager.chatMessages.value.size)
+        }
+    }
+
     private fun awaitCondition(timeoutMs: Long, condition: () -> Boolean) {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {

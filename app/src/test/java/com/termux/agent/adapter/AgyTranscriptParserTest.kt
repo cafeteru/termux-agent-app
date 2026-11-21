@@ -4,9 +4,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
 
 class AgyTranscriptParserTest {
+
+    @get:Rule
+    val tempFolder = TemporaryFolder()
 
     @Test
     fun testParseUserInputLineExtractsUserRequest() {
@@ -44,5 +50,37 @@ class AgyTranscriptParserTest {
     fun testParseIgnoresGenericToolOutputLinesWithSourceModel() {
         val genericLine = """{"step_index":6,"source":"MODEL","type":"GENERIC","status":"DONE","created_at":"2026-11-20T20:33:59Z","content":"Command exited with code 0.\n\nCommand output:\nfile.txt"}"""
         assertNull(AgyTranscriptParser.parseLine(genericLine))
+    }
+
+    @Test
+    fun testReadTranscriptByIdCommandReadsOnlyRequestedIdAndRejectsTraversal() {
+        val fakeHome = tempFolder.newFolder("home")
+        val targetFile = File(fakeHome, ".gemini/antigravity-cli/brain/sess-1/.system_generated/logs/transcript.jsonl")
+        val otherFile = File(fakeHome, ".gemini/antigravity-cli/brain/sess-2/.system_generated/logs/transcript.jsonl")
+        targetFile.parentFile?.mkdirs()
+        otherFile.parentFile?.mkdirs()
+        targetFile.writeText("{\"step_index\":0,\"type\":\"USER_INPUT\",\"content\":\"<USER_REQUEST>only one</USER_REQUEST>\"}\n")
+        otherFile.writeText("{\"step_index\":0,\"type\":\"USER_INPUT\",\"content\":\"<USER_REQUEST>other two</USER_REQUEST>\"}\n")
+
+        val (stdout, exitCode) = runReadTranscript("sess-1", fakeHome.absolutePath)
+        assertEquals(0, exitCode)
+        assertTrue(stdout.contains("only one"))
+        assertTrue(!stdout.contains("other two"))
+
+        val (_, traversalExit) = runReadTranscript("../secret", fakeHome.absolutePath)
+        assertEquals(1, traversalExit)
+    }
+
+    private fun runReadTranscript(id: String, homePath: String): Pair<String, Int> {
+        val process = ProcessBuilder("sh", "-c", AgyTranscriptParser.READ_TRANSCRIPT_BY_ID_COMMAND).apply {
+            environment()["HOME"] = homePath
+            redirectErrorStream(false)
+        }.start()
+        process.outputStream.use { out ->
+            out.write("$id\n".toByteArray(Charsets.UTF_8))
+            out.flush()
+        }
+        val out = process.inputStream.readBytes().toString(Charsets.UTF_8)
+        return out to process.waitFor()
     }
 }

@@ -9,6 +9,7 @@ import com.termux.agent.adapter.AgentAdapter
 import com.termux.agent.adapter.AgentState
 import com.termux.agent.adapter.AgyTranscriptParser
 import com.termux.agent.adapter.ChatMessage
+import com.termux.agent.adapter.CopilotTranscriptParser
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -49,8 +50,26 @@ class SshPtySession {
     private val _chatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val chatMessages: StateFlow<List<ChatMessage>> = _chatMessages.asStateFlow()
 
+    private val _agentSessions = MutableStateFlow<List<AgentSessionSummary>>(emptyList())
+    val agentSessions: StateFlow<List<AgentSessionSummary>> = _agentSessions.asStateFlow()
+
+    private val _agentSessionsLoading = MutableStateFlow(false)
+    val agentSessionsLoading: StateFlow<Boolean> = _agentSessionsLoading.asStateFlow()
+
+    private val _agentSessionsError = MutableStateFlow<String?>(null)
+    val agentSessionsError: StateFlow<String?> = _agentSessionsError.asStateFlow()
+
+    private val _activeConversationId = MutableStateFlow<String?>(null)
+    val activeConversationId: StateFlow<String?> = _activeConversationId.asStateFlow()
+
+    private val _activeConversationTitle = MutableStateFlow<String?>(null)
+    val activeConversationTitle: StateFlow<String?> = _activeConversationTitle.asStateFlow()
+
     @Volatile
     private var lastOutputTimestamp: Long = 0L
+
+    @Volatile
+    private var shellDirty: Boolean = false
 
     private var session: Session? = null
     private var channel: ChannelShell? = null
@@ -59,6 +78,11 @@ class SshPtySession {
     private var readerThread: Thread? = null
     private var monitorThread: Thread? = null
     private var sessionGeneration: Long = 0L
+    private var shellGeneration: Long = 0L
+    private var conversationGeneration: Long = 0L
+    private var awaitingNewConversation: Boolean = false
+    private var baselineConversationIds: Set<String> = emptySet()
+    private val knownIdsByAgent: MutableMap<String, Set<String>> = mutableMapOf()
 
     /**
      * Connects to Termux SSH, opens an xterm-256color PTY shell, and starts reading PTY output.
@@ -70,10 +94,24 @@ class SshPtySession {
     ): ConnectionState {
         disconnect(updateState = false)
 
-        val currentGeneration = synchronized(lock) {
+        val (currentGeneration, currentShellGeneration) = synchronized(lock) {
             terminalBuffer.clear()
-            ++sessionGeneration
+            val nextSessionGen = ++sessionGeneration
+            val nextShellGen = ++shellGeneration
+            conversationGeneration++
+            shellDirty = false
+            awaitingNewConversation = false
+            baselineConversationIds = emptySet()
+            knownIdsByAgent.clear()
+            _chatMessages.value = emptyList()
+            _activeConversationId.value = null
+            _activeConversationTitle.value = null
+            _agentSessions.value = emptyList()
+            _agentSessionsError.value = null
+            _agentSessionsLoading.value = false
+            nextSessionGen to nextShellGen
         }
+        lastOutputTimestamp = 0L
         _ptyOutput.value = ""
         _currentCommandLine.value = ""
         _connectionState.value = ConnectionState.Checking
@@ -96,17 +134,23 @@ class SshPtySession {
             val shellOutput = shellChannel.outputStream
             shellChannel.connect(timeoutMs)
 
+            val initialAgyIds = fetchStateIds("agy", openedSession, currentGeneration).toSet()
+            val initialCopilotIds = fetchStateIds("copilot", openedSession, currentGeneration).toSet()
+
             synchronized(lock) {
                 session = openedSession
                 channel = shellChannel
                 inputStream = shellInput
                 outputStream = shellOutput
+                knownIdsByAgent["agy"] = initialAgyIds
+                knownIdsByAgent["copilot"] = initialCopilotIds
+                baselineConversationIds = knownIdsByAgent[_activeAdapter.value.id.lowercase()].orEmpty()
                 readerThread = thread(
                     start = true,
                     isDaemon = true,
                     name = "termux-ssh-pty-reader"
                 ) {
-                    readPtyLoop(shellInput, currentGeneration)
+                    readPtyLoop(shellInput, currentGeneration, currentShellGeneration)
                 }
                 monitorThread = thread(
                     start = true,
@@ -132,8 +176,28 @@ class SshPtySession {
     }
 
     fun setActiveAdapter(adapter: AgentAdapter) {
+        val switched: Boolean
+        val isConnected: Boolean
+        synchronized(lock) {
+            switched = !adapter.id.equals(_activeAdapter.value.id, ignoreCase = true)
+            if (switched) {
+                conversationGeneration++
+                awaitingNewConversation = false
+                baselineConversationIds = knownIdsByAgent[adapter.id.lowercase()].orEmpty()
+                _activeConversationId.value = null
+                _activeConversationTitle.value = null
+                _chatMessages.value = emptyList()
+                _agentSessions.value = emptyList()
+                _agentSessionsError.value = null
+                _agentSessionsLoading.value = false
+            }
+            isConnected = session?.isConnected == true
+        }
         _activeAdapter.value = adapter
         _agentState.value = adapter.currentState
+        if (switched && isConnected && AgentSessionBrowser.supportsSessions(adapter.id)) {
+            refreshAgentSessionsAsync()
+        }
     }
 
     fun setActiveAdapterById(id: String) {
@@ -142,54 +206,260 @@ class SshPtySession {
     }
 
     fun addChatMessage(message: ChatMessage) {
-        _chatMessages.update { it + message }
+        synchronized(lock) {
+            _chatMessages.update { it + message }
+        }
     }
 
     fun clearChat() {
-        _chatMessages.value = emptyList()
+        synchronized(lock) {
+            conversationGeneration++
+            awaitingNewConversation = false
+            _chatMessages.value = emptyList()
+            _activeConversationId.value = null
+            _activeConversationTitle.value = null
+        }
     }
 
     fun appendTranscriptLine(jsonLine: String): ChatMessage? {
         val parsed = AgyTranscriptParser.parseLine(jsonLine) ?: return null
-        var insertedOrUpdated = false
-        _chatMessages.update { list ->
+        return synchronized(lock) {
+            val (updated, _) = mergeTranscriptMessages(_chatMessages.value, listOf(parsed))
+            if (updated !== _chatMessages.value) {
+                _chatMessages.value = updated
+                parsed
+            } else {
+                null
+            }
+        }
+    }
+
+    private fun mergeTranscriptMessages(
+        existing: List<ChatMessage>,
+        incoming: List<ChatMessage>
+    ): Pair<List<ChatMessage>, ChatMessage?> {
+        var result: MutableList<ChatMessage>? = null
+        var latestNewAgentReply: ChatMessage? = null
+
+        for (parsed in incoming) {
+            val current = result ?: existing
             val existingByStep = if (parsed.stepIndex >= 0) {
-                list.indexOfFirst { it.stepIndex == parsed.stepIndex && it.sender == parsed.sender }
+                current.indexOfFirst { it.stepIndex == parsed.stepIndex && it.sender == parsed.sender }
             } else {
                 -1
             }
+
             when {
                 existingByStep >= 0 -> {
-                    if (list[existingByStep] != parsed) {
-                        insertedOrUpdated = true
-                        list.toMutableList().apply { set(existingByStep, parsed) }
-                    } else {
-                        list
+                    if (current[existingByStep] != parsed) {
+                        val mutable = result ?: existing.toMutableList().also { result = it }
+                        mutable[existingByStep] = parsed
+                        if (parsed.sender == "agent" && parsed.toolCalls.isEmpty() && parsed.content.isNotBlank()) {
+                            latestNewAgentReply = parsed
+                        }
                     }
                 }
                 parsed.sender == "user" -> {
-                    val localDuplicateIdx = list.indexOfFirst {
+                    val localDuplicateIdx = current.indexOfFirst {
                         it.stepIndex < 0 && it.sender == "user" && it.content.trim() == parsed.content.trim()
                     }
+                    val mutable = result ?: existing.toMutableList().also { result = it }
                     if (localDuplicateIdx >= 0) {
-                        list.toMutableList().apply { set(localDuplicateIdx, parsed) }
+                        mutable[localDuplicateIdx] = parsed
                     } else {
-                        insertedOrUpdated = true
-                        list + parsed
+                        mutable.add(parsed)
                     }
                 }
                 else -> {
-                    insertedOrUpdated = true
-                    list + parsed
+                    val mutable = result ?: existing.toMutableList().also { result = it }
+                    mutable.add(parsed)
+                    if (parsed.sender == "agent" && parsed.toolCalls.isEmpty() && parsed.content.isNotBlank()) {
+                        latestNewAgentReply = parsed
+                    }
                 }
             }
         }
-        return if (insertedOrUpdated) parsed else null
+
+        return (result ?: existing) to latestNewAgentReply
+    }
+
+    fun refreshAgentSessions(
+        timeoutMs: Int = AppConfig.DEFAULT_CONNECT_TIMEOUT_MS
+    ): AgentSessionListingResult {
+        val agentId = _activeAdapter.value.id
+        val command = AgentSessionBrowser.listSessionsCommandFor(agentId)
+            ?: return AgentSessionListingResult.Success(emptyList())
+
+        val activeSession = synchronized(lock) {
+            session?.takeIf { it.isConnected }
+        } ?: run {
+            val err = AgentSessionListingResult.Error("No hay una sesión SSH activa.")
+            _agentSessionsError.value = err.message
+            return err
+        }
+
+        _agentSessionsLoading.value = true
+        return try {
+            val (rawOutput, exitStatus) = runExecCommand(
+                activeSession = activeSession,
+                command = command,
+                timeoutMs = timeoutMs,
+                maxBytes = 512 * 1024
+            )
+            val result = AgentSessionBrowser.parseSessionsOutput(rawOutput, exitStatus)
+            synchronized(lock) {
+                if (!_activeAdapter.value.id.equals(agentId, ignoreCase = true)) {
+                    return result
+                }
+                when (result) {
+                    is AgentSessionListingResult.Success -> {
+                        _agentSessions.value = result.sessions
+                        _agentSessionsError.value = null
+                        val currentId = _activeConversationId.value
+                        if (currentId != null) {
+                            result.sessions.firstOrNull { it.id == currentId }?.let { matched ->
+                                _activeConversationTitle.value = matched.title
+                            }
+                        }
+                    }
+                    is AgentSessionListingResult.Error -> {
+                        _agentSessionsError.value = result.message
+                    }
+                }
+            }
+            result
+        } catch (e: Exception) {
+            val message = "Error SSH al listar sesiones: ${e.message ?: e.javaClass.simpleName}"
+            if (_activeAdapter.value.id.equals(agentId, ignoreCase = true)) {
+                _agentSessionsError.value = message
+            }
+            AgentSessionListingResult.Error(message)
+        } finally {
+            _agentSessionsLoading.value = false
+        }
+    }
+
+    fun refreshAgentSessionsAsync() {
+        writeExecutor.execute { refreshAgentSessions() }
+    }
+
+    fun openConversation(sessionSummary: AgentSessionSummary): Boolean =
+        openConversation(
+            conversationId = sessionSummary.id,
+            workspacePath = sessionSummary.workspacePath,
+            title = sessionSummary.title
+        )
+
+    fun openConversation(
+        conversationId: String,
+        workspacePath: String = "",
+        title: String? = null
+    ): Boolean {
+        val cleanId = conversationId.trim()
+        if (!AgentSessionBrowser.isValidConversationId(cleanId)) return false
+
+        val adapter = _activeAdapter.value
+        val agentId = adapter.id
+        if (!AgentSessionBrowser.supportsSessions(agentId)) return false
+
+        val (sessionGen, convGen, needsReopen) = synchronized(lock) {
+            if (session?.isConnected != true) return false
+            val nextConvGen = ++conversationGeneration
+            awaitingNewConversation = false
+            val resolvedTitle = title?.takeIf { it.isNotBlank() }
+                ?: _agentSessions.value.firstOrNull { it.id == cleanId }?.title
+                ?: "Sesión ${cleanId.take(8)}"
+            _activeConversationId.value = cleanId
+            _activeConversationTitle.value = resolvedTitle
+            _chatMessages.value = emptyList()
+            Triple(sessionGeneration, nextConvGen, shellDirty)
+        }
+
+        syncTranscriptById(agentId, cleanId, sessionGen, convGen, allowTurnCompletion = false)
+
+        if (needsReopen && !reopenShellChannel()) {
+            return false
+        }
+
+        val command = adapter.launchConversationCommand(workspacePath, cleanId)
+        return sendCommand(command)
+    }
+
+    fun openConversationAsync(sessionSummary: AgentSessionSummary) {
+        writeExecutor.execute { openConversation(sessionSummary) }
+    }
+
+    fun openConversationAsync(
+        conversationId: String,
+        workspacePath: String = "",
+        title: String? = null
+    ) {
+        writeExecutor.execute { openConversation(conversationId, workspacePath, title) }
+    }
+
+    fun startNewSession(
+        workspacePath: String = "",
+        launchAgent: Boolean = true
+    ): Boolean {
+        val adapter = _activeAdapter.value
+        val agentId = adapter.id
+        val supportsSessions = AgentSessionBrowser.supportsSessions(agentId)
+
+        val activeSession = synchronized(lock) { session?.takeIf { it.isConnected } }
+        val capturedIds = if (supportsSessions && activeSession != null) {
+            val gen = synchronized(lock) { sessionGeneration }
+            fetchStateIds(agentId, activeSession, gen).toSet()
+        } else {
+            emptySet()
+        }
+
+        val needsReopen = synchronized(lock) {
+            conversationGeneration++
+            if (supportsSessions) {
+                val key = agentId.lowercase()
+                val mergedBaseline = knownIdsByAgent[key].orEmpty() + capturedIds
+                knownIdsByAgent[key] = mergedBaseline
+                baselineConversationIds = mergedBaseline
+                awaitingNewConversation = true
+            } else {
+                awaitingNewConversation = false
+            }
+            _activeConversationId.value = null
+            _activeConversationTitle.value = null
+            _chatMessages.value = emptyList()
+            shellDirty
+        }
+
+        if (!launchAgent) {
+            return true
+        }
+        if (activeSession == null) {
+            return false
+        }
+        if (needsReopen && !reopenShellChannel()) {
+            return false
+        }
+        return sendCommand(adapter.launchCommand(workspacePath))
+    }
+
+    fun startNewSessionAsync(
+        workspacePath: String = "",
+        launchAgent: Boolean = true
+    ) {
+        writeExecutor.execute { startNewSession(workspacePath, launchAgent) }
     }
 
     fun launchActiveAgent(workspacePath: String = ""): Boolean {
-        val command = _activeAdapter.value.launchCommand(workspacePath)
-        return sendCommand(command)
+        val adapter = _activeAdapter.value
+        if (AgentSessionBrowser.supportsSessions(adapter.id)) {
+            val boundId = _activeConversationId.value
+            return if (boundId != null) {
+                openConversation(boundId, workspacePath, _activeConversationTitle.value)
+            } else {
+                startNewSession(workspacePath, launchAgent = true)
+            }
+        }
+        return sendCommand(adapter.launchCommand(workspacePath))
     }
 
     fun launchActiveAgentAsync(workspacePath: String = "") {
@@ -207,21 +477,45 @@ class SshPtySession {
             session?.takeIf { it.isConnected }
         } ?: return DirectoryListingResult.Error("No hay una sesión SSH activa.")
 
+        return try {
+            val (rawOutput, exitStatus) = runExecCommand(
+                activeSession = activeSession,
+                command = WorkspaceBrowser.LIST_DIRECTORIES_COMMAND,
+                stdinPayload = WorkspaceBrowser.sanitizeRequestedPath(path) + "\n",
+                timeoutMs = timeoutMs,
+                maxBytes = 256 * 1024
+            )
+            WorkspaceBrowser.parseDirectoryListingOutput(rawOutput, exitStatus)
+        } catch (e: Exception) {
+            DirectoryListingResult.Error(
+                "Error SSH al explorar directorios: ${e.message ?: e.javaClass.simpleName}"
+            )
+        }
+    }
+
+    private fun runExecCommand(
+        activeSession: Session,
+        command: String,
+        stdinPayload: String? = null,
+        timeoutMs: Int,
+        maxBytes: Int = 512 * 1024
+    ): Pair<String, Int> {
         var exec: ChannelExec? = null
         return try {
             exec = activeSession.openChannel("exec") as ChannelExec
-            exec.setCommand(WorkspaceBrowser.LIST_DIRECTORIES_COMMAND)
+            exec.setCommand(command)
             val stdout = exec.inputStream
-            val stdin = exec.outputStream
+            val stdin = if (stdinPayload != null) exec.outputStream else null
             exec.connect(timeoutMs)
 
-            stdin.write((WorkspaceBrowser.sanitizeRequestedPath(path) + "\n").toByteArray(Charsets.UTF_8))
-            stdin.flush()
-            stdin.close()
+            if (stdin != null && stdinPayload != null) {
+                stdin.write(stdinPayload.toByteArray(Charsets.UTF_8))
+                stdin.flush()
+                stdin.close()
+            }
 
             val outBuffer = ByteArrayOutputStream()
             val chunk = ByteArray(4096)
-            val maxBytes = 256 * 1024
             while (true) {
                 val read = stdout.read(chunk)
                 if (read < 0) break
@@ -236,12 +530,7 @@ class SshPtySession {
                 Thread.sleep(10)
             }
 
-            val rawOutput = String(outBuffer.toByteArray(), Charsets.UTF_8)
-            WorkspaceBrowser.parseDirectoryListingOutput(rawOutput, exec.exitStatus)
-        } catch (e: Exception) {
-            DirectoryListingResult.Error(
-                "Error SSH al explorar directorios: ${e.message ?: e.javaClass.simpleName}"
-            )
+            String(outBuffer.toByteArray(), Charsets.UTF_8) to exec.exitStatus
         } finally {
             runCatching { exec?.disconnect() }
         }
@@ -271,14 +560,25 @@ class SshPtySession {
 
         return try {
             _activeAdapter.value.sendPrompt(activeOutput, text)
+            synchronized(lock) {
+                shellDirty = true
+                val agentId = _activeAdapter.value.id
+                if (AgentSessionBrowser.supportsSessions(agentId) &&
+                    _activeConversationId.value == null &&
+                    !awaitingNewConversation
+                ) {
+                    baselineConversationIds = knownIdsByAgent[agentId.lowercase()].orEmpty()
+                    awaitingNewConversation = true
+                }
+                val userMsg = ChatMessage(
+                    stepIndex = -(_chatMessages.value.size + 1),
+                    sender = "user",
+                    content = text,
+                    timestamp = currentTimestamp()
+                )
+                _chatMessages.update { it + userMsg }
+            }
             _agentState.value = _activeAdapter.value.currentState
-            val userMsg = ChatMessage(
-                stepIndex = -(_chatMessages.value.size + 1),
-                sender = "user",
-                content = text,
-                timestamp = currentTimestamp()
-            )
-            _chatMessages.update { it + userMsg }
             true
         } catch (_: Exception) {
             false
@@ -352,6 +652,7 @@ class SshPtySession {
         return try {
             activeOutput.write(payload)
             activeOutput.flush()
+            shellDirty = true
             true
         } catch (_: Exception) {
             false
@@ -365,6 +666,12 @@ class SshPtySession {
         val resources = synchronized(lock) {
             terminalBuffer.clear()
             sessionGeneration++
+            shellGeneration++
+            conversationGeneration++
+            shellDirty = false
+            awaitingNewConversation = false
+            baselineConversationIds = emptySet()
+            knownIdsByAgent.clear()
             clearSessionRefsLocked()
         }
         if (updateState) {
@@ -373,6 +680,11 @@ class SshPtySession {
             _adapterEvent.value = null
             _agentState.value = AgentState.IDLE
             _chatMessages.value = emptyList()
+            _activeConversationId.value = null
+            _activeConversationTitle.value = null
+            _agentSessions.value = emptyList()
+            _agentSessionsError.value = null
+            _agentSessionsLoading.value = false
             lastOutputTimestamp = 0L
             _ptyOutput.value = ""
             _currentCommandLine.value = ""
@@ -381,18 +693,107 @@ class SshPtySession {
         closeResources(resources)
     }
 
-    private fun readPtyLoop(stream: InputStream, generation: Long) {
+    private fun reopenShellChannel(timeoutMs: Int = AppConfig.DEFAULT_CONNECT_TIMEOUT_MS): Boolean {
+        val (activeSession, currentSessionGen, nextShellGen, oldShell) = synchronized(lock) {
+            val s = session?.takeIf { it.isConnected } ?: return false
+            val sGen = sessionGeneration
+            val nextShGen = ++shellGeneration
+            terminalBuffer.clear()
+            lastOutputTimestamp = 0L
+            shellDirty = false
+            val detached = SessionResources(
+                input = inputStream,
+                output = outputStream,
+                channel = channel,
+                session = null,
+                monitor = null
+            )
+            inputStream = null
+            outputStream = null
+            channel = null
+            readerThread = null
+            Quadruple(s, sGen, nextShGen, detached)
+        }
+
+        _ptyOutput.value = ""
+        _currentCommandLine.value = ""
+        _activeAdapter.value.reset()
+        _adapterEvent.value = null
+        _agentState.value = AgentState.IDLE
+
+        closeResources(oldShell)
+
+        var newChannel: ChannelShell? = null
+        var newInput: InputStream? = null
+        var newOutput: OutputStream? = null
+        return try {
+            newChannel = activeSession.openChannel("shell") as ChannelShell
+            newChannel.setPty(true)
+            newChannel.setPtyType("xterm-256color", 80, 24, 640, 480)
+            newInput = newChannel.inputStream
+            newOutput = newChannel.outputStream
+            newChannel.connect(timeoutMs)
+
+            val installed = synchronized(lock) {
+                val stillValid = sessionGeneration == currentSessionGen &&
+                    shellGeneration == nextShellGen &&
+                    session === activeSession &&
+                    activeSession.isConnected
+                if (stillValid) {
+                    channel = newChannel
+                    inputStream = newInput
+                    outputStream = newOutput
+                    readerThread = thread(
+                        start = true,
+                        isDaemon = true,
+                        name = "termux-ssh-pty-reader"
+                    ) {
+                        readPtyLoop(newInput, currentSessionGen, nextShellGen)
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+            if (!installed) {
+                runCatching { newInput.close() }
+                runCatching { newOutput.close() }
+                runCatching { newChannel.disconnect() }
+                return false
+            }
+
+            val promptDeadline = System.currentTimeMillis() + 400L
+            while (System.currentTimeMillis() < promptDeadline) {
+                if (lastOutputTimestamp > 0L) break
+                val stillValid = synchronized(lock) {
+                    sessionGeneration == currentSessionGen && shellGeneration == nextShellGen
+                }
+                if (!stillValid) break
+                Thread.sleep(20)
+            }
+            true
+        } catch (_: Exception) {
+            runCatching { newInput?.close() }
+            runCatching { newOutput?.close() }
+            runCatching { newChannel?.disconnect() }
+            false
+        }
+    }
+
+    private fun readPtyLoop(stream: InputStream, sessionGen: Long, shellGen: Long) {
         val buffer = ByteArray(4096)
         try {
             while (true) {
                 val bytesRead = stream.read(buffer)
                 if (bytesRead < 0) {
-                    handleRemoteTermination(generation)
+                    handleRemoteTermination(sessionGen, shellGen)
                     break
                 }
                 if (bytesRead == 0) continue
 
-                val isCurrentSession = synchronized(lock) { sessionGeneration == generation }
+                val isCurrentSession = synchronized(lock) {
+                    sessionGeneration == sessionGen && shellGeneration == shellGen
+                }
                 if (!isCurrentSession) break
 
                 val chunk = String(buffer, 0, bytesRead, Charsets.UTF_8)
@@ -419,25 +820,27 @@ class SshPtySession {
                 _agentState.value = _activeAdapter.value.currentState
             }
         } catch (_: Exception) {
-            // Only surface an error if disconnect() has not already invalidated this generation.
-            handleRemoteTermination(generation)
+            // Only surface an error if neither session nor shell was replaced locally.
+            handleRemoteTermination(sessionGen, shellGen)
         }
     }
 
     private fun applyAdapterEvent(event: AdapterEvent) {
         _adapterEvent.value = event
         if (event is AdapterEvent.TurnCompleted && event.summary.isNotBlank()) {
-            _chatMessages.update { list ->
-                val lastAgent = list.lastOrNull { it.sender == "agent" }
-                if (lastAgent != null && lastAgent.content == event.summary) {
-                    list
-                } else {
-                    list + ChatMessage(
-                        stepIndex = -(list.size + 1),
-                        sender = "agent",
-                        content = event.summary,
-                        timestamp = currentTimestamp()
-                    )
+            synchronized(lock) {
+                _chatMessages.update { list ->
+                    val lastAgent = list.lastOrNull { it.sender == "agent" }
+                    if (lastAgent != null && lastAgent.content == event.summary) {
+                        list
+                    } else {
+                        list + ChatMessage(
+                            stepIndex = -(list.size + 1),
+                            sender = "agent",
+                            content = event.summary,
+                            timestamp = currentTimestamp()
+                        )
+                    }
                 }
             }
         }
@@ -446,15 +849,18 @@ class SshPtySession {
     private fun monitorIdleAndTranscriptLoop(generation: Long) {
         var tick = 0
         try {
+            if (AgentSessionBrowser.supportsSessions(_activeAdapter.value.id)) {
+                refreshAgentSessions()
+            }
             while (true) {
                 Thread.sleep(300)
-                val isCurrent = synchronized(lock) {
-                    sessionGeneration == generation && session?.isConnected == true
+                val (isCurrent, shellConnected) = synchronized(lock) {
+                    (sessionGeneration == generation && session?.isConnected == true) to (channel?.isConnected == true)
                 }
                 if (!isCurrent) break
 
                 val lastTs = lastOutputTimestamp
-                if (lastTs > 0L) {
+                if (lastTs > 0L && shellConnected) {
                     val idleMs = System.currentTimeMillis() - lastTs
                     val screenLines = synchronized(lock) { terminalBuffer.getLines() }
                     val event = _activeAdapter.value.onScreenUpdated(screenLines, idleMs)
@@ -465,8 +871,21 @@ class SshPtySession {
                 }
 
                 tick++
-                if (_activeAdapter.value.id == "agy" && tick % 3 == 0) {
-                    syncLatestAgyTranscript(generation)
+                val agentId = _activeAdapter.value.id
+                if (AgentSessionBrowser.supportsSessions(agentId) && tick % 3 == 0) {
+                    val (boundId, awaiting, convGen) = synchronized(lock) {
+                        Triple(_activeConversationId.value, awaitingNewConversation, conversationGeneration)
+                    }
+                    when {
+                        boundId != null -> syncTranscriptById(
+                            agentId = agentId,
+                            conversationId = boundId,
+                            sessionGen = generation,
+                            convGen = convGen,
+                            allowTurnCompletion = true
+                        )
+                        awaiting -> discoverAndBindNewConversation(agentId, generation, convGen)
+                    }
                 }
             }
         } catch (_: InterruptedException) {
@@ -476,60 +895,169 @@ class SshPtySession {
         }
     }
 
-    internal fun syncLatestAgyTranscript(
+    private fun fetchStateIds(
+        agentId: String,
+        activeSession: Session? = synchronized(lock) { session?.takeIf { it.isConnected } },
         generation: Long = synchronized(lock) { sessionGeneration },
-        timeoutMs: Int = 2_000
-    ) {
-        val activeSession = synchronized(lock) {
-            if (sessionGeneration == generation) session?.takeIf { it.isConnected } else null
-        } ?: return
+        timeoutMs: Int = 1_500
+    ): List<String> {
+        val command = AgentSessionBrowser.listStateIdsCommandFor(agentId) ?: return emptyList()
+        val target = activeSession ?: return emptyList()
+        val validGen = synchronized(lock) { sessionGeneration == generation }
+        if (!validGen) return emptyList()
 
-        var exec: ChannelExec? = null
-        try {
-            exec = activeSession.openChannel("exec") as ChannelExec
-            exec.setCommand(AgyTranscriptParser.READ_LATEST_TRANSCRIPT_COMMAND)
-            val stdout = exec.inputStream
-            exec.connect(timeoutMs)
-
-            val outBuffer = ByteArrayOutputStream()
-            val chunk = ByteArray(4096)
-            val maxBytes = 256 * 1024
-            while (true) {
-                val read = stdout.read(chunk)
-                if (read < 0) break
-                if (read == 0) continue
-                val remaining = maxBytes - outBuffer.size()
-                if (remaining <= 0) break
-                outBuffer.write(chunk, 0, minOf(read, remaining))
-            }
-
-            val raw = String(outBuffer.toByteArray(), Charsets.UTF_8)
-            if (raw.isBlank()) return
-
-            var latestNewAgentReply: ChatMessage? = null
-            for (line in raw.lineSequence()) {
-                val added = appendTranscriptLine(line)
-                if (added != null && added.sender == "agent" && added.toolCalls.isEmpty() && added.content.isNotBlank()) {
-                    latestNewAgentReply = added
-                }
-            }
-
-            if (latestNewAgentReply != null && _activeAdapter.value.currentState == AgentState.WORKING) {
-                _activeAdapter.value.markCompleted()
-                _adapterEvent.value = AdapterEvent.TurnCompleted(latestNewAgentReply.content)
-                _agentState.value = _activeAdapter.value.currentState
-            }
+        return try {
+            val (raw, _) = runExecCommand(
+                activeSession = target,
+                command = command,
+                timeoutMs = timeoutMs,
+                maxBytes = 128 * 1024
+            )
+            AgentSessionBrowser.parseStateIdsOutput(raw)
         } catch (_: Exception) {
-            // Ignore transient exec errors so the PTY session is never disrupted.
-        } finally {
-            runCatching { exec?.disconnect() }
+            emptyList()
         }
     }
 
-    private fun handleRemoteTermination(generation: Long) {
+    private fun discoverAndBindNewConversation(agentId: String, generation: Long, convGen: Long) {
+        val (activeSession, baselineSnapshot) = synchronized(lock) {
+            if (sessionGeneration != generation ||
+                conversationGeneration != convGen ||
+                !_activeAdapter.value.id.equals(agentId, ignoreCase = true) ||
+                !awaitingNewConversation ||
+                _activeConversationId.value != null
+            ) {
+                return
+            }
+            session?.takeIf { it.isConnected } to baselineConversationIds
+        }
+        val targetSession = activeSession ?: return
+
+        val currentIds = fetchStateIds(agentId, targetSession, generation)
+        if (currentIds.isEmpty()) return
+
+        val newId = currentIds.firstOrNull { it !in baselineSnapshot } ?: return
+        val bound = synchronized(lock) {
+            if (sessionGeneration != generation ||
+                conversationGeneration != convGen ||
+                !_activeAdapter.value.id.equals(agentId, ignoreCase = true) ||
+                !awaitingNewConversation ||
+                _activeConversationId.value != null
+            ) {
+                false
+            } else {
+                awaitingNewConversation = false
+                val key = agentId.lowercase()
+                knownIdsByAgent[key] = knownIdsByAgent[key].orEmpty() + currentIds
+                _activeConversationId.value = newId
+                if (_activeConversationTitle.value.isNullOrBlank()) {
+                    val userTitle = _chatMessages.value
+                        .firstOrNull { it.sender == "user" && it.content.isNotBlank() }
+                        ?.content
+                        ?.trim()
+                        ?.replace('\n', ' ')
+                        ?.take(40)
+                    _activeConversationTitle.value = userTitle ?: "Sesión ${newId.take(8)}"
+                }
+                true
+            }
+        }
+        if (bound) {
+            syncTranscriptById(
+                agentId = agentId,
+                conversationId = newId,
+                sessionGen = generation,
+                convGen = convGen,
+                allowTurnCompletion = true
+            )
+            refreshAgentSessions()
+        }
+    }
+
+    internal fun syncTranscriptById(
+        agentId: String,
+        conversationId: String,
+        sessionGen: Long = synchronized(lock) { sessionGeneration },
+        convGen: Long = synchronized(lock) { conversationGeneration },
+        allowTurnCompletion: Boolean = true,
+        timeoutMs: Int = 2_000
+    ) {
+        if (!AgentSessionBrowser.isValidConversationId(conversationId)) return
+
+        val readCommand = when (agentId.lowercase()) {
+            "agy" -> AgyTranscriptParser.READ_TRANSCRIPT_BY_ID_COMMAND
+            "copilot" -> CopilotTranscriptParser.READ_TRANSCRIPT_BY_ID_COMMAND
+            else -> return
+        }
+
+        val activeSession = synchronized(lock) {
+            if (sessionGeneration == sessionGen &&
+                conversationGeneration == convGen &&
+                _activeAdapter.value.id.equals(agentId, ignoreCase = true) &&
+                _activeConversationId.value == conversationId
+            ) {
+                session?.takeIf { it.isConnected }
+            } else {
+                null
+            }
+        } ?: return
+
+        try {
+            val (raw, exitStatus) = runExecCommand(
+                activeSession = activeSession,
+                command = readCommand,
+                stdinPayload = "$conversationId\n",
+                timeoutMs = timeoutMs,
+                maxBytes = 512 * 1024
+            )
+            if (exitStatus != 0 || raw.isBlank()) return
+
+            val parsedMessages = raw.lineSequence()
+                .mapIndexedNotNull { idx, line ->
+                    when (agentId.lowercase()) {
+                        "agy" -> AgyTranscriptParser.parseLine(line)
+                        "copilot" -> CopilotTranscriptParser.parseLine(line, fallbackStepIndex = idx)
+                        else -> null
+                    }
+                }
+                .toList()
+            if (parsedMessages.isEmpty()) return
+
+            val latestNewAgentReply = synchronized(lock) {
+                if (sessionGeneration != sessionGen ||
+                    conversationGeneration != convGen ||
+                    !_activeAdapter.value.id.equals(agentId, ignoreCase = true) ||
+                    _activeConversationId.value != conversationId
+                ) {
+                    return
+                }
+                val (updated, reply) = mergeTranscriptMessages(_chatMessages.value, parsedMessages)
+                if (updated !== _chatMessages.value) {
+                    _chatMessages.value = updated
+                }
+                reply
+            }
+
+            if (allowTurnCompletion &&
+                latestNewAgentReply != null &&
+                _activeAdapter.value.id.equals(agentId, ignoreCase = true) &&
+                _activeAdapter.value.currentState == AgentState.WORKING
+            ) {
+                _activeAdapter.value.markCompleted()
+                _adapterEvent.value = AdapterEvent.TurnCompleted(latestNewAgentReply.content)
+                _agentState.value = _activeAdapter.value.currentState
+                refreshAgentSessions()
+            }
+        } catch (_: Exception) {
+            // Ignore transient exec errors so the PTY session is never disrupted.
+        }
+    }
+
+    private fun handleRemoteTermination(sessionGen: Long, shellGen: Long) {
         val resources = synchronized(lock) {
-            if (sessionGeneration != generation) return
+            if (sessionGeneration != sessionGen || shellGeneration != shellGen) return
             sessionGeneration++
+            shellGeneration++
             clearSessionRefsLocked()
         }
         closeResources(resources)
@@ -567,6 +1095,13 @@ class SshPtySession {
         val session: Session?,
         val monitor: Thread? = null
     )
+
+    private data class Quadruple<A, B, C, D>(
+        val first: A,
+        val second: B,
+        val third: C,
+        val fourth: D
+    )
 }
 
 /**
@@ -586,6 +1121,11 @@ object SshSessionManager {
     val adapterEvent: StateFlow<AdapterEvent?> = activeSession.adapterEvent
     val agentState: StateFlow<AgentState> = activeSession.agentState
     val chatMessages: StateFlow<List<ChatMessage>> = activeSession.chatMessages
+    val agentSessions: StateFlow<List<AgentSessionSummary>> = activeSession.agentSessions
+    val agentSessionsLoading: StateFlow<Boolean> = activeSession.agentSessionsLoading
+    val agentSessionsError: StateFlow<String?> = activeSession.agentSessionsError
+    val activeConversationId: StateFlow<String?> = activeSession.activeConversationId
+    val activeConversationTitle: StateFlow<String?> = activeSession.activeConversationTitle
 
     /**
      * Returns true once per process so the UI only auto-connects on cold start.
@@ -643,6 +1183,39 @@ object SshSessionManager {
     fun clearChat() = activeSession.clearChat()
 
     fun appendTranscriptLine(jsonLine: String) = activeSession.appendTranscriptLine(jsonLine)
+
+    fun refreshAgentSessions(timeoutMs: Int = AppConfig.DEFAULT_CONNECT_TIMEOUT_MS): AgentSessionListingResult =
+        activeSession.refreshAgentSessions(timeoutMs)
+
+    fun refreshAgentSessionsAsync() = activeSession.refreshAgentSessionsAsync()
+
+    fun openConversation(sessionSummary: AgentSessionSummary): Boolean =
+        activeSession.openConversation(sessionSummary)
+
+    fun openConversation(
+        conversationId: String,
+        workspacePath: String = "",
+        title: String? = null
+    ): Boolean = activeSession.openConversation(conversationId, workspacePath, title)
+
+    fun openConversationAsync(sessionSummary: AgentSessionSummary) =
+        activeSession.openConversationAsync(sessionSummary)
+
+    fun openConversationAsync(
+        conversationId: String,
+        workspacePath: String = "",
+        title: String? = null
+    ) = activeSession.openConversationAsync(conversationId, workspacePath, title)
+
+    fun startNewSession(
+        workspacePath: String = "",
+        launchAgent: Boolean = true
+    ): Boolean = activeSession.startNewSession(workspacePath, launchAgent)
+
+    fun startNewSessionAsync(
+        workspacePath: String = "",
+        launchAgent: Boolean = true
+    ) = activeSession.startNewSessionAsync(workspacePath, launchAgent)
 
     fun launchActiveAgent(workspacePath: String = ""): Boolean =
         activeSession.launchActiveAgent(workspacePath)
