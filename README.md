@@ -186,6 +186,9 @@ On Termux, the project uses the locally installed Android SDK and ARM64 `aapt2`.
 The host-specific paths belong in git-ignored `local.properties` and user-level
 `~/.gradle/gradle.properties`.
 
+See [docs/termux-development.md](docs/termux-development.md) for the maintainer's
+Termux toolchain and on-device APK workflow.
+
 ## Tests
 
 The test suite covers:
