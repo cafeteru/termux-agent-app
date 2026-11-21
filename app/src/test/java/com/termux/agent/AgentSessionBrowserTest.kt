@@ -1,5 +1,7 @@
 package com.termux.agent
 
+import com.termux.agent.infrastructure.agent.AdapterRegistry
+import com.termux.agent.infrastructure.ssh.*
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -16,16 +18,16 @@ class AgentSessionBrowserTest {
 
     @Test
     fun supportsSessionsAndCommandDispatchCoverAgyAndCopilot() {
-        assertTrue(AgentSessionBrowser.supportsSessions("agy"))
-        assertTrue(AgentSessionBrowser.supportsSessions("AGY"))
-        assertTrue(AgentSessionBrowser.supportsSessions("copilot"))
-        assertTrue(AgentSessionBrowser.supportsSessions("COPILOT"))
-        assertFalse(AgentSessionBrowser.supportsSessions("unknown"))
+        val agy = AdapterRegistry.getAdapter("agy")
+        val copilot = AdapterRegistry.getAdapter("copilot")
 
-        assertEquals(AgentSessionBrowser.LIST_AGY_SESSIONS_COMMAND, AgentSessionBrowser.listSessionsCommandFor("agy"))
-        assertEquals(AgentSessionBrowser.LIST_COPILOT_SESSIONS_COMMAND, AgentSessionBrowser.listSessionsCommandFor("copilot"))
-        assertEquals(AgentSessionBrowser.LIST_AGY_IDS_COMMAND, AgentSessionBrowser.listStateIdsCommandFor("agy"))
-        assertEquals(AgentSessionBrowser.LIST_COPILOT_IDS_COMMAND, AgentSessionBrowser.listStateIdsCommandFor("copilot"))
+        assertTrue(agy.supportsSessions)
+        assertTrue(copilot.supportsSessions)
+        assertEquals(AgentSessionBrowser.LIST_AGY_SESSIONS_COMMAND, agy.listSessionsCommand)
+        assertEquals(AgentSessionBrowser.LIST_COPILOT_SESSIONS_COMMAND, copilot.listSessionsCommand)
+        assertEquals(AgentSessionBrowser.LIST_AGY_IDS_COMMAND, agy.listStateIdsCommand)
+        assertEquals(AgentSessionBrowser.LIST_COPILOT_IDS_COMMAND, copilot.listStateIdsCommand)
+        assertEquals(null, AdapterRegistry.findAdapter("unknown"))
     }
 
     @Test
@@ -172,6 +174,11 @@ class AgentSessionBrowserTest {
 
     @Test
     fun listAgySessionsShellCommandQueriesReadOnlyDbFallsBackToBrainAndHandlesEmptyHome() {
+        HostTestSupport.assumeShellContract(
+            AgentSessionBrowser.LIST_AGY_SESSIONS_COMMAND,
+            tempFolder.root,
+            requiresPython = true
+        )
         val emptyHome = tempFolder.newFolder("empty-agy-home")
         assertEquals(
             AgentSessionListingResult.Success(emptyList()),
@@ -248,6 +255,11 @@ class AgentSessionBrowserTest {
 
     @Test
     fun listCopilotSessionsShellCommandQueriesSessionStoreFallsBackToWorkspaceYamlAndHandlesEmptyHome() {
+        HostTestSupport.assumeShellContract(
+            AgentSessionBrowser.LIST_COPILOT_SESSIONS_COMMAND,
+            tempFolder.root,
+            requiresPython = true
+        )
         val emptyHome = tempFolder.newFolder("empty-copilot-home")
         assertEquals(
             AgentSessionListingResult.Success(emptyList()),

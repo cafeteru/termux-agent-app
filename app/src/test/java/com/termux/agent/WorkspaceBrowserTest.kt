@@ -1,5 +1,6 @@
 package com.termux.agent
 
+import com.termux.agent.infrastructure.ssh.*
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -83,6 +84,11 @@ class WorkspaceBrowserTest {
 
     @Test
     fun shellListingCommandHandlesEmptyNormalSpecialCharsHiddenAndSymlinkDirs() {
+        HostTestSupport.assumeShellContract(
+            WorkspaceBrowser.LIST_DIRECTORIES_COMMAND,
+            tempFolder.root
+        )
+        HostTestSupport.assumeSymlinkSupport(tempFolder.root)
         val emptyDir = tempFolder.newFolder("empty")
         val emptyResult = runListingScript(emptyDir.absolutePath, homePath = emptyDir.absolutePath)
         assertEquals(

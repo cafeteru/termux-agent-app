@@ -1,5 +1,8 @@
 package com.termux.agent
 
+import com.termux.agent.infrastructure.terminal.AnsiTextParser
+import com.termux.agent.infrastructure.terminal.TerminalBuffer
+import com.termux.agent.infrastructure.ssh.*
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

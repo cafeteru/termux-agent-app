@@ -1,5 +1,6 @@
 package com.termux.agent
 
+import com.termux.agent.application.config.AppConfig
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

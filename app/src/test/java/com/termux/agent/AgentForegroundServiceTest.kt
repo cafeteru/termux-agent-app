@@ -1,14 +1,16 @@
 package com.termux.agent
 
+import com.termux.agent.infrastructure.android.AgentForegroundService
+import com.termux.agent.infrastructure.ssh.*
 import android.app.Application
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.test.core.app.ApplicationProvider
-import com.termux.agent.adapter.AdapterEvent
-import com.termux.agent.adapter.AgentAdapter
-import com.termux.agent.adapter.AgentState
+import com.termux.agent.application.port.AgentAdapter
+import com.termux.agent.domain.model.AdapterEvent
+import com.termux.agent.domain.model.AgentState
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull

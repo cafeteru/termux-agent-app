@@ -16,12 +16,21 @@
 
 ## Adapter Contract
 
-All agent adapters must implement the shared `AgentAdapter` interface and normalize agent-specific launch, screen detection, prompt submission, permission resolution, and lifecycle behavior.
+All agent adapters must implement the shared `AgentAdapter` port and normalize agent-specific launch, session discovery, transcript parsing, screen detection, prompt submission, permission resolution, and lifecycle behavior.
+
+Keep package dependencies directed inward:
+
+- `domain` contains framework-free models and must not import other app layers.
+- `application` owns ports, configuration, and orchestration contracts.
+- `infrastructure` implements ports for agents, SSH, terminal, and Android.
+- `presentation` renders UI and coordinates calls into application/infrastructure facades.
+- Agent-specific `agy`/`copilot` branches belong inside concrete infrastructure strategies, not in UI or SSH orchestration.
 
 For the current contract and agent-specific behavior, use:
 
 - [README.md](README.md#adapter-flow)
-- `app/src/main/java/com/termux/agent/adapter/`
+- `app/src/main/java/com/termux/agent/application/port/`
+- `app/src/main/java/com/termux/agent/infrastructure/agent/`
 
 ## Engineering Workflow
 
@@ -50,5 +59,6 @@ The repository hooks in `.agents/hooks.json` enforce the pull-request and merge 
 
 - Preserve existing behavior unless the task explicitly changes it.
 - Run the narrowest relevant tests before expanding to the full suite.
+- Keep unit tests platform-neutral. Tests for Termux shell commands must detect the required runtime capability and skip with a clear reason when unavailable; do not assert host-specific `sh`, Python, path, or symlink behavior.
 - For Android features or fixes, follow the Termux build and on-device verification steps in [docs/termux-development.md](docs/termux-development.md).
 - Keep `versionName = "0.0.1"` and `versionCode = 1` until the initial functional MVP is ready.
