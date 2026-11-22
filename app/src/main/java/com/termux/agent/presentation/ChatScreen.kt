@@ -133,25 +133,18 @@ fun ChatScreen(
 
         HorizontalDivider()
 
-        WorkspaceSelectorBar(
+        ChatContextBar(
             selectedWorkspacePath = selectedWorkspacePath,
-            onClick = onOpenWorkspacePicker,
+            activeConversationId = activeConversationId,
+            activeConversationTitle = activeConversationTitle,
+            supportsSessions = supportsSessions,
+            onOpenWorkspacePicker = onOpenWorkspacePicker,
+            onOpenSessions = onOpenSessions,
+            onNewSession = onNewSession,
             modifier = Modifier.fillMaxWidth()
         )
 
         HorizontalDivider()
-
-        if (supportsSessions) {
-            AgentSessionBar(
-                activeConversationId = activeConversationId,
-                activeConversationTitle = activeConversationTitle,
-                onOpenSessions = onOpenSessions,
-                onNewSession = onNewSession,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            HorizontalDivider()
-        }
 
         Box(
             modifier = Modifier
@@ -161,9 +154,6 @@ fun ChatScreen(
             if (messages.isEmpty() && agentState != AgentState.WAITING_PERMISSION) {
                 EmptyChatPlaceholder(
                     agentName = activeAdapter.name,
-                    selectedWorkspacePath = selectedWorkspacePath,
-                    onOpenWorkspacePicker = onOpenWorkspacePicker,
-                    onLaunchAgent = onLaunchAgent,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(24.dp)
@@ -389,6 +379,95 @@ private fun AgentSessionBar(
                 contentDescription = "Nueva conversación",
                 tint = MaterialTheme.colorScheme.primary
             )
+        }
+    }
+}
+
+@Composable
+private fun ChatContextBar(
+    selectedWorkspacePath: String,
+    activeConversationId: String?,
+    activeConversationTitle: String?,
+    supportsSessions: Boolean,
+    onOpenWorkspacePicker: () -> Unit,
+    onOpenSessions: () -> Unit,
+    onNewSession: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val sessionTitle = activeConversationTitle?.takeIf { it.isNotBlank() } ?: "Nueva conversación"
+
+    Row(
+        modifier = modifier
+            .defaultMinSize(minHeight = 48.dp)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .defaultMinSize(minHeight = 48.dp)
+                .clickable(onClick = onOpenWorkspacePicker)
+                .testTag("workspace_selector_bar")
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = FolderIcon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp)
+            )
+            Text(
+                text = WorkspaceBrowser.displayName(selectedWorkspacePath),
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        if (supportsSessions) {
+            Surface(
+                modifier = Modifier
+                    .padding(start = 4.dp)
+                    .size(width = 1.dp, height = 28.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            ) {}
+
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .defaultMinSize(minHeight = 48.dp)
+                    .clickable(onClick = onOpenSessions)
+                    .testTag("agent_session_bar")
+                    .padding(start = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = ChatBubbleIcon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = sessionTitle,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(
+                    onClick = onNewSession,
+                    modifier = Modifier.testTag("chat_new_session_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Nueva conversación",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
         }
     }
 }
@@ -701,9 +780,6 @@ private fun PermissionRequestCard(
 @Composable
 private fun EmptyChatPlaceholder(
     agentName: String,
-    selectedWorkspacePath: String,
-    onOpenWorkspacePicker: () -> Unit,
-    onLaunchAgent: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -736,34 +812,11 @@ private fun EmptyChatPlaceholder(
         Spacer(modifier = Modifier.height(6.dp))
 
         Text(
-            text = "Escribe un prompt abajo para comunicarte con el agente o inicialo en la sesión de Termux.",
+            text = "Escribe un prompt abajo para comunicarte con el agente.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedButton(
-            onClick = onOpenWorkspacePicker,
-            modifier = Modifier.testTag("empty_chat_select_workspace")
-        ) {
-            Icon(
-                imageVector = FolderIcon,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(if (selectedWorkspacePath.isBlank()) "Seleccionar carpeta" else "Cambiar carpeta")
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Button(onClick = onLaunchAgent) {
-            Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("Iniciar $agentName en Termux")
-        }
     }
 }
 

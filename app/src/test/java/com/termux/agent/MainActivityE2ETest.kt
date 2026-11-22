@@ -475,10 +475,13 @@ class MainActivityE2ETest {
                         .isEmpty()
                 }
 
-                composeRule.onNodeWithText("Cambiar carpeta").assertIsDisplayed()
+                composeRule.onNodeWithTag("workspace_selector_bar")
+                    .assertIsDisplayed()
+                    .assertTextContains("termux-agent-app", substring = true)
                 assertEquals("/home/termux/termux-agent-app", SshConfigStore.loadWorkspacePath(app))
 
-                composeRule.onNodeWithText("Iniciar Google Antigravity CLI en Termux").performClick()
+                composeRule.onNodeWithContentDescription("Acciones del agente").performClick()
+                composeRule.onNodeWithText("Iniciar agente").performClick()
                 composeRule.waitUntil(timeoutMillis = 5_000) {
                     server.receivedCommands.contains("cd \"/home/termux/termux-agent-app\" && agy")
                 }

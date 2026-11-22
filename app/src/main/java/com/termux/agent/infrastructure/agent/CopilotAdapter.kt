@@ -101,6 +101,37 @@ class CopilotAdapter : AgentAdapter {
     }
 
     private fun detectCopilotPermission(lines: List<String>, fullText: String): AdapterEvent.PermissionRequired? {
+        val trustText = fullText.lowercase()
+        val asksFolderTrust = (
+            trustText.contains("do you trust") &&
+                (trustText.contains("folder") || trustText.contains("directory"))
+            ) || (
+            trustText.contains("trust") &&
+                trustText.contains("files") &&
+                trustText.contains("future sessions")
+        )
+        if (asksFolderTrust) {
+            val folderLine = lines.firstOrNull {
+                it.contains("do you trust", ignoreCase = true)
+            } ?: lines.firstOrNull {
+                it.contains("trust", ignoreCase = true)
+            } ?: lines.firstOrNull {
+                it.contains("folder", ignoreCase = true)
+            } ?: "Do you trust the files in this folder?"
+
+            val id = "copilot-folder-trust-${System.currentTimeMillis()}"
+            return AdapterEvent.PermissionRequired(
+                id = id,
+                tool = "workspace",
+                command = folderLine,
+                options = listOf(
+                    "Yes",
+                    "Yes, remember this folder for future sessions",
+                    "No, cancel"
+                )
+            )
+        }
+
         val copilotConfirmRegex = Regex("""(?i)(?:run this command\?|confirm command|execute\?|\? execute|do you want to run).*?|\[y/n\]|\(y/n\)""")
         if (!copilotConfirmRegex.containsMatchIn(fullText)) {
             return null
