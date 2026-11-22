@@ -48,10 +48,15 @@ For the current contract and agent-specific behavior, use:
 8. After approval, always squash-merge and delete the remote branch and local branch:
    ```bash
    gh pr merge <pr-number> --squash --delete-branch
-   git checkout main
-   git pull origin main
-   git branch -d <branch>
+   git fetch origin --prune
+   git switch main
+   git pull --ff-only origin main
+   git branch -d <branch>  # if Git requires force after squash, verify merge then use -D
+   git status --short --branch
    ```
+   Treat “mergea”, “fusiona”, “integra esto”, “merge this PR”, “land it”, or similar
+   wording as explicit approval to execute this complete flow. Before switching
+   branches, verify the worktree owner and preserve unrelated uncommitted work.
 
 The repository hooks in `.agents/hooks.json` enforce the pull-request and merge guardrails.
 

@@ -10,6 +10,8 @@ Create Pull Requests on `github.com` via `create_pr.py` to avoid shell quoting/e
 ## 1. Guardrails & 4-Block Description Template
 
 1. **Write gate:** Never push directly to `main`/`master` or auto-merge without explicit user direction. Run `git push` separately before running `create_pr.py`.
+   - When the user later explicitly says **merge**, **mergea**, **fusiona**, **integra**, **land it**, or similar, treat it as approval to merge the relevant PR. For an ordinary standalone PR, use squash merge and complete cleanup.
+   - After merge: verify `MERGED`, delete the remote branch, fetch/prune, switch to `main`, fast-forward `main`, delete the local feature branch, and verify the worktree is clean.
 2. **Conflict check:** `create_pr.py` automatically runs `git merge-tree` against `origin/<target-branch>` and aborts on conflicts; after creation it verifies `mergeable` and `mergeStateStatus` via `gh pr view`.
 3. **Execution safety & idempotency:**
    - Runs `gh` with `stdin=DEVNULL`, `GH_PAGER=cat`, `GH_PROMPT_DISABLED=1`, and `--body-file` to prevent interactive hangs and shell escaping issues.
