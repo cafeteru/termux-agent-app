@@ -54,6 +54,9 @@ dependencies {
 }
 
 tasks.withType<Test>().configureEach {
+    maxParallelForks = 1
+    maxHeapSize = "1536m"
+    jvmArgs("-XX:+UseParallelGC")
     testLogging {
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
         showExceptions = true
