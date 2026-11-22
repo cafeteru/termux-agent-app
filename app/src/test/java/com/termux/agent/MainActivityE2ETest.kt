@@ -109,9 +109,7 @@ class MainActivityE2ETest {
                 }
                 composeRule.onNodeWithText("Termux conectado", substring = true).assertDoesNotExist()
 
-                composeRule.onNodeWithText("Búfer").performClick()
-                composeRule.onNodeWithTag("command_input_field").performTextInput("whoami")
-                composeRule.onNodeWithContentDescription("Enviar comando").performClick()
+                composeRule.onNodeWithTag("interactive_terminal_input").performTextInput("whoami\r")
 
                 composeRule.waitUntil(timeoutMillis = 5_000) {
                     composeRule.onAllNodesWithText("ACK:whoami", substring = true)
@@ -120,7 +118,6 @@ class MainActivityE2ETest {
                 }
 
                 // Empty submission should send "\r" to the PTY and receive ACK:.
-                composeRule.onNodeWithContentDescription("Enviar comando").performClick()
                 composeRule.waitUntil(timeoutMillis = 5_000) {
                     composeRule.onAllNodesWithText("ACK:\n", substring = true)
                         .fetchSemanticsNodes()
@@ -161,9 +158,8 @@ class MainActivityE2ETest {
                         .isNotEmpty()
                 }
 
-                composeRule.onNodeWithText("Búfer").performClick()
                 composeRule.onNodeWithText("termux@local:~$ ", substring = true).performClick()
-                composeRule.onNodeWithTag("command_input_field").assertIsFocused()
+                composeRule.onNodeWithTag("interactive_terminal_input").assertIsFocused()
 
                 composeRule.onNodeWithText("ESC").performClick()
                 composeRule.onNodeWithText("TAB").performClick()
@@ -173,10 +169,10 @@ class MainActivityE2ETest {
                 composeRule.onNodeWithContentDescription("Flecha derecha").performClick()
 
                 composeRule.onNodeWithText("CTRL").performClick()
-                composeRule.onNodeWithTag("command_input_field").performTextInput("c")
+                composeRule.onNodeWithTag("interactive_terminal_input").performTextInput("c")
 
                 composeRule.onNodeWithText("ALT").performClick()
-                composeRule.onNodeWithTag("command_input_field").performTextInput("f")
+                composeRule.onNodeWithTag("interactive_terminal_input").performTextInput("f")
 
                 composeRule.waitUntil(timeoutMillis = 5_000) {
                     server.receivedRawString()
@@ -215,8 +211,6 @@ class MainActivityE2ETest {
                     server.receivedRawString().contains("ls\t\u001B[A\u001B[B")
                 }
 
-                composeRule.onNodeWithText("Búfer").performClick()
-                composeRule.onNodeWithText("Modo búfer (comando)").assertIsDisplayed()
             }
         }
     }

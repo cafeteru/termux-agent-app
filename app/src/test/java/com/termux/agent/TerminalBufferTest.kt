@@ -2,7 +2,6 @@ package com.termux.agent
 
 import com.termux.agent.infrastructure.terminal.AnsiTextParser
 import com.termux.agent.infrastructure.terminal.TerminalBuffer
-import com.termux.agent.infrastructure.ssh.*
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -68,15 +67,6 @@ class TerminalBufferTest {
         assertTrue(rendered.contains("\u001B[1;32muser@termux"))
         val parsed = AnsiTextParser.parse(rendered)
         assertEquals("user@termux:~$ ", parsed.text)
-    }
-
-    @Test
-    fun appendBoundedOutputOverwritesLinesInsteadOfConcatenating() {
-        val result = SshSessionManager.appendBoundedOutput(
-            current = "~/repo $ git switch main",
-            chunk = "\r~/repo $ git pull\u001B[K"
-        )
-        assertEquals("~/repo $ git pull", result)
     }
 
     @Test

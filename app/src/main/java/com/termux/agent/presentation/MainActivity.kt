@@ -481,9 +481,6 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                                 PtyTerminalCard(
                                     ptyOutput = ptyOutput,
                                     currentCommandLine = currentCommandLine,
-                                    onSendCommand = { command ->
-                                        AgentForegroundService.sendCommand(context, command)
-                                    },
                                     onSendRaw = { raw ->
                                         AgentForegroundService.sendRaw(context, raw)
                                     },
@@ -1407,35 +1404,19 @@ private fun ConnectionStatusBanner(
 private fun PtyTerminalCard(
     ptyOutput: String,
     currentCommandLine: String = "",
-    onSendCommand: (String) -> Unit,
     onSendRaw: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var isInteractiveMode by rememberSaveable { mutableStateOf(true) }
     var interactiveValue by remember { mutableStateOf(TextFieldValue("")) }
     val interactiveFocusRequester = remember { FocusRequester() }
     var isInteractiveFocused by remember { mutableStateOf(false) }
-
-    var commandValue by remember { mutableStateOf(TextFieldValue("")) }
-    val commandHistory = remember { mutableStateListOf<String>() }
-    var historyIndex by remember { mutableStateOf(-1) }
-    var draftCommand by remember { mutableStateOf("") }
-    var isCommandFocused by remember { mutableStateOf(false) }
 
     var ctrlArmed by rememberSaveable { mutableStateOf(false) }
     var altArmed by rememberSaveable { mutableStateOf(false) }
     val outputScrollState = rememberScrollState()
     val styledOutput = remember(ptyOutput) { AnsiTextParser.parse(ptyOutput) }
-    val commandFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     val terminalInteractionSource = remember { MutableInteractionSource() }
-
-    val focusCommandField = {
-        runCatching { commandFocusRequester.requestFocus() }
-        keyboardController?.show()
-        isCommandFocused = true
-        Unit
-    }
 
     val focusInteractiveField = {
         runCatching { interactiveFocusRequester.requestFocus() }
@@ -1444,142 +1425,17 @@ private fun PtyTerminalCard(
         Unit
     }
 
-    val focusCurrentField = {
-        if (isInteractiveMode) focusInteractiveField() else focusCommandField()
-    }
-
-    val submitCommand = {
-        val text = commandValue.text
-        onSendCommand(text)
-        if (text.isNotBlank()) {
-            if (commandHistory.isEmpty() || commandHistory.last() != text) {
-                commandHistory.add(text)
-            }
-        }
-        historyIndex = -1
-        draftCommand = ""
-        commandValue = TextFieldValue("")
-    }
-
-    val navigateHistoryUp = {
-        if (commandHistory.isNotEmpty()) {
-            if (historyIndex == -1) {
-                draftCommand = commandValue.text
-                historyIndex = commandHistory.size - 1
-            } else if (historyIndex > 0) {
-                historyIndex--
-            }
-            val historical = commandHistory[historyIndex]
-            commandValue = TextFieldValue(historical, selection = TextRange(historical.length))
-        } else {
-            onSendRaw(SshSessionManager.applyModifiers("\u001B[A", ctrl = false, alt = altArmed))
-            ctrlArmed = false
-            altArmed = false
-        }
-        focusCommandField()
-    }
-
-    val navigateHistoryDown = {
-        if (historyIndex != -1) {
-            if (historyIndex < commandHistory.size - 1) {
-                historyIndex++
-                val historical = commandHistory[historyIndex]
-                commandValue = TextFieldValue(historical, selection = TextRange(historical.length))
-            } else {
-                historyIndex = -1
-                commandValue = TextFieldValue(draftCommand, selection = TextRange(draftCommand.length))
-            }
-        } else {
-            onSendRaw(SshSessionManager.applyModifiers("\u001B[B", ctrl = false, alt = altArmed))
-            ctrlArmed = false
-            altArmed = false
-        }
-        focusCommandField()
-    }
-
-    val handleAutocomplete = {
-        val text = commandValue.text
-        if (text.isNotEmpty()) {
-            val matches = commandHistory.filter { it.startsWith(text, ignoreCase = true) && it != text }
-            if (matches.isNotEmpty()) {
-                val currentIndex = matches.indexOf(text)
-                val nextIndex = (currentIndex + 1) % matches.size
-                val completed = matches[nextIndex]
-                commandValue = TextFieldValue(completed, selection = TextRange(completed.length))
-            } else {
-                val lastSpace = text.lastIndexOf(' ')
-                if (lastSpace >= 0) {
-                    val prefix = text.substring(0, lastSpace + 1)
-                    val lastWord = text.substring(lastSpace + 1)
-                    if (lastWord.isNotEmpty()) {
-                        val tokenMatches = commandHistory
-                            .flatMap { it.split(' ') }
-                            .filter { it.startsWith(lastWord, ignoreCase = true) && it != lastWord }
-                            .distinct()
-                        if (tokenMatches.isNotEmpty()) {
-                            val completed = prefix + tokenMatches.first()
-                            commandValue = TextFieldValue(completed, selection = TextRange(completed.length))
-                        } else {
-                            onSendRaw("\t")
-                        }
-                    } else {
-                        onSendRaw("\t")
-                    }
-                } else {
-                    onSendRaw("\t")
-                }
-            }
-        } else {
-            onSendRaw("\t")
-        }
-        focusCommandField()
-    }
-
-    val handleMoveLeft = {
-        if (commandValue.text.isNotEmpty()) {
-            val newPos = maxOf(0, commandValue.selection.start - 1)
-            commandValue = commandValue.copy(selection = TextRange(newPos))
-        } else {
-            onSendRaw(SshSessionManager.applyModifiers("\u001B[D", ctrl = false, alt = altArmed))
-            ctrlArmed = false
-            altArmed = false
-        }
-        focusCommandField()
-    }
-
-    val handleMoveRight = {
-        if (commandValue.text.isNotEmpty()) {
-            val newPos = minOf(commandValue.text.length, commandValue.selection.end + 1)
-            commandValue = commandValue.copy(selection = TextRange(newPos))
-        } else {
-            onSendRaw(SshSessionManager.applyModifiers("\u001B[C", ctrl = false, alt = altArmed))
-            ctrlArmed = false
-            altArmed = false
-        }
-        focusCommandField()
-    }
-
     LaunchedEffect(ptyOutput, outputScrollState.maxValue) {
         outputScrollState.scrollTo(outputScrollState.maxValue)
     }
 
-    LaunchedEffect(isInteractiveMode) {
-        if (isInteractiveMode) {
-            focusInteractiveField()
-        } else {
-            focusCommandField()
-        }
+    LaunchedEffect(Unit) {
+        focusInteractiveField()
     }
 
     LaunchedEffect(currentCommandLine) {
         if (currentCommandLine != interactiveValue.text) {
             interactiveValue = TextFieldValue(
-                text = currentCommandLine,
-                selection = TextRange(currentCommandLine.length)
-            )
-        }
-        if (currentCommandLine != commandValue.text) {
-            commandValue = TextFieldValue(
                 text = currentCommandLine,
                 selection = TextRange(currentCommandLine.length)
             )
@@ -1595,22 +1451,10 @@ private fun PtyTerminalCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = if (isInteractiveMode) "Modo interactivo (en vivo)" else "Modo búfer (comando)",
+                text = "Modo interactivo (en vivo)",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(
-                    selected = isInteractiveMode,
-                    onClick = { isInteractiveMode = true },
-                    label = { Text("Directo", style = MaterialTheme.typography.labelSmall) }
-                )
-                FilterChip(
-                    selected = !isInteractiveMode,
-                    onClick = { isInteractiveMode = false },
-                    label = { Text("Búfer", style = MaterialTheme.typography.labelSmall) }
-                )
-            }
         }
 
         Surface(
@@ -1620,7 +1464,7 @@ private fun PtyTerminalCard(
                 .clickable(
                     interactionSource = terminalInteractionSource,
                     indication = null,
-                    onClick = focusCurrentField
+                    onClick = focusInteractiveField
                 ),
             shape = MaterialTheme.shapes.small,
             color = Color(0xFF121212)
@@ -1640,7 +1484,7 @@ private fun PtyTerminalCard(
                         .clickable(
                             interactionSource = terminalInteractionSource,
                             indication = null,
-                            onClick = focusCurrentField
+                            onClick = focusInteractiveField
                         )
                         .padding(10.dp)
                 )
@@ -1651,74 +1495,53 @@ private fun PtyTerminalCard(
             altArmed = altArmed,
             onToggleCtrl = {
                 ctrlArmed = !ctrlArmed
-                focusCurrentField()
+                focusInteractiveField()
             },
             onToggleAlt = {
                 altArmed = !altArmed
-                focusCurrentField()
+                focusInteractiveField()
             },
             onEsc = {
                 onSendRaw(SshSessionManager.applyModifiers("\u001B", ctrl = false, alt = altArmed))
                 ctrlArmed = false
                 altArmed = false
-                focusCurrentField()
+                focusInteractiveField()
             },
             onTab = {
-                if (isInteractiveMode) {
-                    onSendRaw("\t")
-                    focusCurrentField()
-                } else {
-                    handleAutocomplete()
-                }
+                onSendRaw("\t")
+                focusInteractiveField()
             },
             onArrowLeft = {
-                if (isInteractiveMode) {
-                    onSendRaw(SshSessionManager.applyModifiers("\u001B[D", ctrl = false, alt = altArmed))
-                    ctrlArmed = false
-                    altArmed = false
-                    focusCurrentField()
-                } else {
-                    handleMoveLeft()
-                }
+                onSendRaw(SshSessionManager.applyModifiers("\u001B[D", ctrl = false, alt = altArmed))
+                ctrlArmed = false
+                altArmed = false
+                focusInteractiveField()
             },
             onArrowDown = {
-                if (isInteractiveMode) {
-                    interactiveValue = TextFieldValue("")
-                    onSendRaw(SshSessionManager.applyModifiers("\u001B[B", ctrl = false, alt = altArmed))
-                    ctrlArmed = false
-                    altArmed = false
-                    focusCurrentField()
-                } else {
-                    navigateHistoryDown()
-                }
+                interactiveValue = TextFieldValue("")
+                onSendRaw(SshSessionManager.applyModifiers("\u001B[B", ctrl = false, alt = altArmed))
+                ctrlArmed = false
+                altArmed = false
+                focusInteractiveField()
             },
             onArrowUp = {
-                if (isInteractiveMode) {
-                    interactiveValue = TextFieldValue("")
-                    onSendRaw(SshSessionManager.applyModifiers("\u001B[A", ctrl = false, alt = altArmed))
-                    ctrlArmed = false
-                    altArmed = false
-                    focusCurrentField()
-                } else {
-                    navigateHistoryUp()
-                }
+                interactiveValue = TextFieldValue("")
+                onSendRaw(SshSessionManager.applyModifiers("\u001B[A", ctrl = false, alt = altArmed))
+                ctrlArmed = false
+                altArmed = false
+                focusInteractiveField()
             },
             onArrowRight = {
-                if (isInteractiveMode) {
-                    onSendRaw(SshSessionManager.applyModifiers("\u001B[C", ctrl = false, alt = altArmed))
-                    ctrlArmed = false
-                    altArmed = false
-                    focusCurrentField()
-                } else {
-                    handleMoveRight()
-                }
+                onSendRaw(SshSessionManager.applyModifiers("\u001B[C", ctrl = false, alt = altArmed))
+                ctrlArmed = false
+                altArmed = false
+                focusInteractiveField()
             },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 6.dp)
         )
-        if (isInteractiveMode) {
-            Surface(
+        Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 6.dp)
@@ -1884,78 +1707,6 @@ private fun PtyTerminalCard(
                     }
                 )
             }
-        } else {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = commandValue,
-                    onValueChange = { updated ->
-                        if ((ctrlArmed || altArmed) && updated.text.length > commandValue.text.length) {
-                            val ch = updated.text.last().toString()
-                            onSendRaw(SshSessionManager.applyModifiers(ch, ctrl = ctrlArmed, alt = altArmed))
-                            ctrlArmed = false
-                            altArmed = false
-                        } else if (updated.text.contains('\n') || updated.text.contains('\r')) {
-                            commandValue = updated.copy(
-                                text = updated.text.replace("\r", "").replace("\n", "")
-                            )
-                            submitCommand()
-                        } else {
-                            commandValue = updated
-                        }
-                    },
-                    label = { Text("Comando") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(
-                        onSend = { submitCommand() },
-                        onDone = { submitCommand() },
-                        onGo = { submitCommand() }
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("command_input_field")
-                        .focusRequester(commandFocusRequester)
-                        .onFocusChanged { isCommandFocused = it.isFocused }
-                        .onPreviewKeyEvent { event ->
-                            if (event.type == KeyEventType.KeyDown) {
-                                when (event.key) {
-                                    Key.Enter, Key.NumPadEnter -> {
-                                        submitCommand()
-                                        true
-                                    }
-                                    Key.DirectionUp -> {
-                                        navigateHistoryUp()
-                                        true
-                                    }
-                                    Key.DirectionDown -> {
-                                        navigateHistoryDown()
-                                        true
-                                    }
-                                    Key.Tab -> {
-                                        handleAutocomplete()
-                                        true
-                                    }
-                                    else -> false
-                                }
-                            } else {
-                                false
-                            }
-                        }
-                )
-                FilledIconButton(onClick = submitCommand) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Enviar comando"
-                    )
-                }
-            }
-        }
     }
 }
 

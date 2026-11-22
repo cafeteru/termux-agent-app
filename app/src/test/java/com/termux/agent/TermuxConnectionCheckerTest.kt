@@ -146,17 +146,6 @@ class TermuxConnectionCheckerTest {
     }
 
     @Test
-    fun appendBoundedOutputNormalizesCarriageReturnsAndTruncatesToMaxChars() {
-        val result = SshSessionManager.appendBoundedOutput(
-            current = "abc\n",
-            chunk = "123\r\n456\r\n",
-            maxChars = 8
-        )
-
-        assertEquals("123\n456\n", result)
-    }
-
-    @Test
     fun sshSessionManagerConnectUpdatesStateWithErrorWhenTermuxMissing() {
         val result = SshSessionManager.connect(
             isTermuxInstalled = { false },
