@@ -62,3 +62,14 @@ The repository hooks in `.agents/hooks.json` enforce the pull-request and merge 
 - Keep unit tests platform-neutral. Tests for Termux shell commands must detect the required runtime capability and skip with a clear reason when unavailable; do not assert host-specific `sh`, Python, path, or symlink behavior.
 - For Android features or fixes, follow the Termux build and on-device verification steps in [docs/termux-development.md](docs/termux-development.md).
 - Keep `versionName = "0.0.1"` and `versionCode = 1` until the initial functional MVP is ready.
+
+## Specialized Agent Team
+
+The repository exposes isolated Copilot agent profiles under `.github/agents/`:
+
+- `platform-orchestrator`: architecture, routing, and concise synthesis.
+- `android-codebase-specialist`: Kotlin, Compose, SSH/PTTY, adapters, transcripts, and notifications.
+- `android-ui-ux-specialist`: mobile hierarchy, touch ergonomics, accessibility, and UX regression coverage.
+- `android-build-release-specialist`: Gradle tests, ARM64 builds, APK delivery, and build failure triage.
+
+Use the orchestrator for multi-area work. Route UI/a11y work explicitly to `android-ui-ux-specialist`; route adapter, SSH, or session behavior to `android-codebase-specialist`; route full validation and APK delivery to `android-build-release-specialist`.
