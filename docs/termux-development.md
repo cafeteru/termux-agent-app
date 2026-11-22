@@ -37,10 +37,24 @@ The Maven override is required for native ARM64 builds in Termux. GitHub Actions
 
 ## Tests and APK Build
 
-Always disable the Gradle daemon in Termux:
+Always disable the Gradle daemon in Termux.
+
+Run fast platform-neutral unit tests without Compose/Robolectric E2E coverage:
 
 ```bash
-gradle testDebugUnitTest assembleDebug --no-daemon
+gradle testDebugUnitTest --no-daemon
+```
+
+Run the slower SSH and Compose/Robolectric E2E suite separately:
+
+```bash
+gradle testDebugE2E --no-daemon
+```
+
+Run both suites when full local verification is required:
+
+```bash
+gradle testDebugAll assembleDebug --no-daemon
 ```
 
 Robolectric and Compose end-to-end tests run natively on Termux `aarch64` without `proot` when tests use:

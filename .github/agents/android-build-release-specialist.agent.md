@@ -12,7 +12,7 @@ Run the smallest reliable validation, then produce a debug APK when application 
 1. Use Termux's native ARM64 toolchain and `--no-daemon`.
 2. For focused changes, run the relevant test class or package first.
 3. For the complete app DoD, run:
-   `gradle testDebugUnitTest assembleDebug --no-daemon`
+   `gradle testDebugAll assembleDebug --no-daemon`
 4. Copy the resulting APK to:
    `/sdcard/Download/termux-agent-0.0.1-debug.apk`
 5. Do not change `versionName` or `versionCode` unless the user explicitly requests a release.
