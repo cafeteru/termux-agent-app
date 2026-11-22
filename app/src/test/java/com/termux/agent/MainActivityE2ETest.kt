@@ -763,8 +763,8 @@ class MainActivityE2ETest {
                 .assertIsDisplayed()
                 .assertTextEquals("Termux Agent")
 
-            // 4. Test gear button directly opens config screen
-            composeRule.onNodeWithContentDescription("Configurar SSH").performClick()
+            // 4. Test the direct configuration action on the disconnected screen
+            composeRule.onNodeWithText("Configurar SSH").performClick()
             composeRule.waitForIdle()
             composeRule.onNodeWithText("Configuración SSH").assertIsDisplayed()
             composeRule.onNodeWithContentDescription("Volver a la pantalla principal").performClick()
