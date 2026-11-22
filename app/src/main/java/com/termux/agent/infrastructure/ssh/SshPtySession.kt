@@ -1105,11 +1105,9 @@ class SshPtySession {
 }
 
 /**
- * Process-wide holder for the active SSH PTY session and bounded terminal output helpers.
+ * Process-wide holder for the active SSH PTY session.
  */
 object SshSessionManager {
-    const val MAX_OUTPUT_CHARS = 8_192
-
     private val activeSession = SshPtySession()
     private val autoConnectLock = Any()
     private var initialAutoConnectConsumed = false
@@ -1134,24 +1132,6 @@ object SshSessionManager {
         if (initialAutoConnectConsumed) return false
         initialAutoConnectConsumed = true
         true
-    }
-
-    /**
-     * Normalizes carriage returns and appends a chunk while bounding output to [maxChars].
-     */
-    fun appendBoundedOutput(
-        current: String,
-        chunk: String,
-        maxChars: Int = MAX_OUTPUT_CHARS
-    ): String {
-        if (maxChars <= 0) return ""
-        val buffer = TerminalBuffer()
-        if (current.isNotEmpty()) {
-            buffer.feed(current)
-        }
-        buffer.feed(chunk)
-        val rendered = buffer.render()
-        return if (rendered.length <= maxChars) rendered else rendered.takeLast(maxChars)
     }
 
     /**
