@@ -54,10 +54,39 @@ dependencies {
 }
 
 tasks.withType<Test>().configureEach {
+    maxParallelForks = 1
+    maxHeapSize = "1536m"
+    jvmArgs("-XX:+UseParallelGC")
     testLogging {
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
         showExceptions = true
         showCauses = true
         showStackTraces = true
+    }
+}
+
+afterEvaluate {
+    val testDebugUnitTest = tasks.named<Test>("testDebugUnitTest")
+
+    testDebugUnitTest.configure {
+        exclude("**/*E2ETest.class")
+        exclude("**/*IntegrationTest.class")
+        exclude("**/*ForegroundServiceTest.class")
+    }
+
+    tasks.register<Test>("testDebugE2E") {
+        description = "Runs Robolectric and Compose end-to-end tests."
+        group = "verification"
+        testClassesDirs = testDebugUnitTest.get().testClassesDirs
+        classpath = testDebugUnitTest.get().classpath
+        include("**/*E2ETest.class")
+        include("**/*IntegrationTest.class")
+        include("**/*ForegroundServiceTest.class")
+    }
+
+    tasks.register("testDebugAll") {
+        description = "Runs unit tests and end-to-end tests."
+        group = "verification"
+        dependsOn(testDebugUnitTest, "testDebugE2E")
     }
 }

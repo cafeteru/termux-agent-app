@@ -94,6 +94,28 @@ class CopilotAdapterTest {
     }
 
     @Test
+    fun testDetectFolderTrustPermissionFromScreen() {
+        adapter.sendPrompt(ByteArrayOutputStream(), "work in this folder")
+
+        val screenLines = listOf(
+            "Copilot can read files in this folder",
+            "Do you trust the files in this folder?",
+            "1. Yes",
+            "2. Yes, and remember this folder for future sessions",
+            "3. No"
+        )
+
+        val event = adapter.onScreenUpdated(screenLines, idleMs = 100)
+        assertTrue(event is AdapterEvent.PermissionRequired)
+
+        val perm = event as AdapterEvent.PermissionRequired
+        assertEquals("workspace", perm.tool)
+        assertTrue(perm.command.contains("trust", ignoreCase = true))
+        assertEquals(3, perm.options.size)
+        assertEquals(AgentState.WAITING_PERMISSION, adapter.currentState)
+    }
+
+    @Test
     fun testDetectTurnCompletedWhenWorkingAndPromptIdle() {
         adapter.sendPrompt(ByteArrayOutputStream(), "help")
         assertEquals(AgentState.WORKING, adapter.currentState)

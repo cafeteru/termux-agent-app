@@ -182,11 +182,19 @@ Create `local.properties` with the local Android SDK path:
 sdk.dir=/path/to/Android/Sdk
 ```
 
-Then run:
+Then run the fast unit suite:
 
 ```bash
 gradle testDebugUnitTest assembleDebug --no-daemon
 ```
+
+Run the slower SSH/Compose E2E suite separately:
+
+```bash
+gradle testDebugE2E --no-daemon
+```
+
+Use `gradle testDebugAll assembleDebug --no-daemon` for full local verification.
 
 The APK is written to:
 
@@ -213,10 +221,22 @@ The test suite covers:
 - Jetpack Compose UI and notification behavior with Robolectric.
 - End-to-end connection, Chat, and Terminal workflows.
 
-Run the tests with:
+Run the fast unit tests with:
 
 ```bash
 gradle testDebugUnitTest --no-daemon
+```
+
+Run slower SSH/Compose/Robolectric E2E tests separately:
+
+```bash
+gradle testDebugE2E --no-daemon
+```
+
+Run both suites for full local verification:
+
+```bash
+gradle testDebugAll --no-daemon
 ```
 
 Tests run on any supported development host. Termux-specific shell contract tests

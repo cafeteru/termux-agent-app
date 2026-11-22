@@ -37,7 +37,7 @@ Improve `termux-agent-app` as a mobile tool, not as a desktop terminal squeezed 
    - narrow and compact screens.
 8. Make focused changes. No redesign driven only by aesthetics, no speculative animations, and no extra dependencies without a clear need.
 9. Add or update Compose/UI tests where a control moves, appears/disappears, or changes interaction semantics.
-10. Run `gradle testDebugUnitTest assembleDebug --no-daemon` when the full change is ready, and copy the APK to `/sdcard/Download/termux-agent-0.0.1-debug.apk`.
+10. Run `gradle testDebugAll assembleDebug --no-daemon` when the full change is ready, and copy the APK to `/sdcard/Download/termux-agent-0.0.1-debug.apk`.
 
 ## Review Priority
 

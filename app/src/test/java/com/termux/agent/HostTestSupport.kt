@@ -3,6 +3,7 @@ package com.termux.agent
 import org.junit.Assume.assumeTrue
 import java.io.File
 import java.nio.file.Files
+import java.util.concurrent.TimeUnit
 
 object HostTestSupport {
     fun assumeShellContract(
@@ -47,7 +48,14 @@ object HostTestSupport {
             environment().putAll(environment)
             redirectErrorStream(true)
         }.start()
-        process.inputStream.readBytes()
-        process.waitFor() == 0
+        val completed = process.waitFor(5, TimeUnit.SECONDS)
+        if (!completed) {
+            process.destroyForcibly()
+            process.waitFor(1, TimeUnit.SECONDS)
+            false
+        } else {
+            process.inputStream.readBytes()
+            process.exitValue() == 0
+        }
     }.getOrDefault(false)
 }

@@ -475,10 +475,13 @@ class MainActivityE2ETest {
                         .isEmpty()
                 }
 
-                composeRule.onNodeWithText("Cambiar carpeta").assertIsDisplayed()
+                composeRule.onNodeWithTag("workspace_selector_bar")
+                    .assertIsDisplayed()
+                    .assertTextContains("termux-agent-app", substring = true)
                 assertEquals("/home/termux/termux-agent-app", SshConfigStore.loadWorkspacePath(app))
 
-                composeRule.onNodeWithText("Iniciar Google Antigravity CLI en Termux").performClick()
+                composeRule.onNodeWithContentDescription("Acciones del agente").performClick()
+                composeRule.onNodeWithText("Iniciar agente").performClick()
                 composeRule.waitUntil(timeoutMillis = 5_000) {
                     server.receivedCommands.contains("cd \"/home/termux/termux-agent-app\" && agy")
                 }
@@ -760,8 +763,8 @@ class MainActivityE2ETest {
                 .assertIsDisplayed()
                 .assertTextEquals("Termux Agent")
 
-            // 4. Test gear button directly opens config screen
-            composeRule.onNodeWithContentDescription("Configurar SSH").performClick()
+            // 4. Test the direct configuration action on the disconnected screen
+            composeRule.onNodeWithText("Configurar SSH").performClick()
             composeRule.waitForIdle()
             composeRule.onNodeWithText("Configuración SSH").assertIsDisplayed()
             composeRule.onNodeWithContentDescription("Volver a la pantalla principal").performClick()

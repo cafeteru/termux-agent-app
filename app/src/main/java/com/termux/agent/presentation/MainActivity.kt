@@ -68,6 +68,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -504,30 +505,37 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                             ConnectionStatusBanner(state = sessionState)
 
                             if (sessionState is ConnectionState.Error || sessionState is ConnectionState.Disconnected) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    FilledIconButton(
-                                        onClick = { currentScreen = MainScreen.CONFIG }
+                                    Button(
+                                        onClick = { AgentForegroundService.connect(context) },
+                                        modifier = Modifier.fillMaxWidth(0.72f)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.Settings,
-                                            contentDescription = "Configurar SSH"
-                                        )
-                                    }
-                                    OutlinedIconButton(
-                                        onClick = { AgentForegroundService.connect(context) }
-                                    ) {
-                                        val isDisconnected = sessionState is ConnectionState.Disconnected
-                                        Icon(
-                                            imageVector = if (isDisconnected) {
+                                            imageVector = if (sessionState is ConnectionState.Disconnected) {
                                                 Icons.Default.PlayArrow
                                             } else {
                                                 Icons.Default.Refresh
                                             },
-                                            contentDescription = if (isDisconnected) "Conectar" else "Reintentar"
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
                                         )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(if (sessionState is ConnectionState.Disconnected) "Conectar" else "Reintentar")
+                                    }
+                                    TextButton(
+                                        onClick = { currentScreen = MainScreen.CONFIG }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Settings,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Configurar SSH")
                                     }
                                 }
                             }
