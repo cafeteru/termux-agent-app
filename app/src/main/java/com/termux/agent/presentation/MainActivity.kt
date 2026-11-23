@@ -198,6 +198,7 @@ fun StatusScreen(modifier: Modifier = Modifier) {
     val activeConversationId by SshSessionManager.activeConversationId.collectAsState()
     val activeConversationTitle by SshSessionManager.activeConversationTitle.collectAsState()
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.CHAT) }
+    var chatDraft by rememberSaveable { mutableStateOf("") }
     var selectedWorkspacePath by rememberSaveable {
         mutableStateOf(SshConfigStore.loadWorkspacePath(context))
     }
@@ -451,6 +452,8 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                                     adapterEvent = adapterEvent,
                                     messages = chatMessages,
                                     selectedWorkspacePath = selectedWorkspacePath,
+                                    promptText = chatDraft,
+                                    onPromptTextChange = { chatDraft = it },
                                     onOpenWorkspacePicker = {
                                         showWorkspacePicker = true
                                     },
@@ -458,7 +461,7 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                                         SshSessionManager.launchActiveAgentAsync(selectedWorkspacePath)
                                     },
                                     onSendPrompt = { prompt ->
-                                        SshSessionManager.sendPromptAsync(prompt)
+                                        SshSessionManager.sendPromptAsync(prompt, selectedWorkspacePath)
                                     },
                                     onResolvePermission = { allow, optionIndex ->
                                         AgentForegroundService.resolvePermission(context, allow, optionIndex)
@@ -1180,227 +1183,6 @@ private fun SshConfigScreenContent(
 }
 
 @Composable
-private fun SshConfigMenuCard(
-    config: SshConfig,
-    portText: String,
-    passwordVisible: Boolean,
-    feedbackMessage: String?,
-    onSelectAuthMethod: (AuthMethod) -> Unit,
-    onUsernameChange: (String) -> Unit,
-    onPortChange: (String) -> Unit,
-    onPasswordChange: (String) -> Unit,
-    onTogglePasswordVisibility: () -> Unit,
-    onCopySetupCommand: () -> Unit,
-    onCopyPublicKey: () -> Unit,
-    onRegenerateKey: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                text = "Método de conexión SSH",
-                style = MaterialTheme.typography.titleMedium
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = config.authMethod == AuthMethod.PASSWORD,
-                    onClick = { onSelectAuthMethod(AuthMethod.PASSWORD) },
-                    label = { Text("Contraseña (passwd)") },
-                    modifier = Modifier.weight(1f)
-                )
-                FilterChip(
-                    selected = config.authMethod == AuthMethod.PUBLIC_KEY,
-                    onClick = { onSelectAuthMethod(AuthMethod.PUBLIC_KEY) },
-                    label = { Text("Clave SSH (key)") },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedTextField(
-                    value = config.username,
-                    onValueChange = onUsernameChange,
-                    label = { Text("Usuario") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f)
-                )
-                OutlinedTextField(
-                    value = portText,
-                    onValueChange = onPortChange,
-                    label = { Text("Puerto") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.weight(0.7f)
-                )
-            }
-
-            if (config.authMethod == AuthMethod.PASSWORD) {
-                PasswordAuthSection(
-                    password = config.password,
-                    passwordVisible = passwordVisible,
-                    onPasswordChange = onPasswordChange,
-                    onTogglePasswordVisibility = onTogglePasswordVisibility
-                )
-            } else {
-                PublicKeyAuthSection(
-                    publicKey = config.publicKeyAuthorized,
-                    feedbackMessage = feedbackMessage,
-                    onCopySetupCommand = onCopySetupCommand,
-                    onCopyPublicKey = onCopyPublicKey,
-                    onRegenerateKey = onRegenerateKey
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PasswordAuthSection(
-    password: String,
-    passwordVisible: Boolean,
-    onPasswordChange: (String) -> Unit,
-    onTogglePasswordVisibility: () -> Unit
-) {
-    OutlinedTextField(
-        value = password,
-        onValueChange = onPasswordChange,
-        label = { Text("Contraseña de Termux") },
-        singleLine = true,
-        visualTransformation = if (passwordVisible) {
-            VisualTransformation.None
-        } else {
-            PasswordVisualTransformation()
-        },
-        trailingIcon = {
-            IconButton(
-                onClick = onTogglePasswordVisibility,
-                // Keep toggle semantics separate from OutlinedTextField's mergeDescendants=true.
-                modifier = Modifier.semantics(mergeDescendants = true) {}
-            ) {
-                Icon(
-                    imageVector = if (passwordVisible) VisibilityOffIcon else VisibilityIcon,
-                    contentDescription = if (passwordVisible) {
-                        "Ocultar contraseña"
-                    } else {
-                        "Mostrar contraseña"
-                    }
-                )
-            }
-        },
-        modifier = Modifier.fillMaxWidth()
-    )
-    Text(
-        text = "En Termux ejecuta 'passwd' para definir tu contraseña y 'sshd' para iniciar el servidor.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
-}
-
-@Composable
-private fun PublicKeyAuthSection(
-    publicKey: String,
-    feedbackMessage: String?,
-    onCopySetupCommand: () -> Unit,
-    onCopyPublicKey: () -> Unit,
-    onRegenerateKey: () -> Unit
-) {
-    Text(
-        text = "Clave pública generada (authorized_keys):",
-        style = MaterialTheme.typography.labelMedium
-    )
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.surface
-    ) {
-        SelectionContainer {
-            Text(
-                text = publicKey,
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                modifier = Modifier.padding(10.dp)
-            )
-        }
-    }
-    Button(
-        onClick = onCopySetupCommand,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Text(text = "Copiar comando para Termux")
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        OutlinedButton(
-            onClick = onCopyPublicKey,
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(text = "Copiar clave")
-        }
-        OutlinedButton(
-            onClick = onRegenerateKey,
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(text = "Regenerar clave")
-        }
-    }
-    if (feedbackMessage != null) {
-        Text(
-            text = feedbackMessage,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary
-        )
-    }
-}
-
-@Composable
-private fun ConnectionStatusBanner(
-    state: ConnectionState,
-    modifier: Modifier = Modifier
-) {
-    val (message, color) = when (state) {
-        ConnectionState.Checking -> {
-            "Detectando Termux y conectando por SSH..." to MaterialTheme.colorScheme.onSurface
-        }
-        is ConnectionState.Connected -> {
-            "Termux conectado (${state.host}:${state.port})\nServidor: ${state.serverBanner}" to MaterialTheme.colorScheme.primary
-        }
-        is ConnectionState.Error -> {
-            "Error detectado: ${state.reason}" to MaterialTheme.colorScheme.error
-        }
-        ConnectionState.Disconnected -> {
-            "Sesión SSH desconectada." to MaterialTheme.colorScheme.onSurfaceVariant
-        }
-    }
-    SelectionContainer(modifier = modifier) {
-        Text(
-            text = message,
-            color = color,
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
-        )
-    }
-}
-
-@Composable
 private fun PtyTerminalCard(
     ptyOutput: String,
     currentCommandLine: String = "",
@@ -1708,133 +1490,6 @@ private fun PtyTerminalCard(
                 )
             }
     }
-}
-
-@Composable
-private fun ExtraKeysRow(
-    ctrlArmed: Boolean,
-    altArmed: Boolean,
-    onToggleCtrl: () -> Unit,
-    onToggleAlt: () -> Unit,
-    onEsc: () -> Unit,
-    onTab: () -> Unit,
-    onArrowLeft: () -> Unit,
-    onArrowDown: () -> Unit,
-    onArrowUp: () -> Unit,
-    onArrowRight: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        ExtraKeyButton(
-            onClick = onEsc,
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(text = "ESC", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-        }
-        ExtraKeyButton(
-            onClick = onTab,
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(text = "TAB", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-        }
-        ExtraKeyButton(
-            active = ctrlArmed,
-            onClick = onToggleCtrl,
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(text = "CTRL", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-        }
-        ExtraKeyButton(
-            active = altArmed,
-            onClick = onToggleAlt,
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(text = "ALT", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-        }
-        ExtraKeyButton(
-            onClick = onArrowLeft,
-            modifier = Modifier.weight(1f)
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                contentDescription = "Flecha izquierda"
-            )
-        }
-        ExtraKeyButton(
-            onClick = onArrowDown,
-            modifier = Modifier.weight(1f)
-        ) {
-            Icon(
-                imageVector = Icons.Default.KeyboardArrowDown,
-                contentDescription = "Flecha abajo"
-            )
-        }
-        ExtraKeyButton(
-            onClick = onArrowUp,
-            modifier = Modifier.weight(1f)
-        ) {
-            Icon(
-                imageVector = Icons.Default.KeyboardArrowUp,
-                contentDescription = "Flecha arriba"
-            )
-        }
-        ExtraKeyButton(
-            onClick = onArrowRight,
-            modifier = Modifier.weight(1f)
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = "Flecha derecha"
-            )
-        }
-    }
-}
-
-@Composable
-private fun ExtraKeyButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    active: Boolean = false,
-    content: @Composable () -> Unit
-) {
-    FilledTonalButton(
-        onClick = onClick,
-        modifier = modifier.height(36.dp),
-        shape = MaterialTheme.shapes.extraSmall,
-        contentPadding = PaddingValues(0.dp),
-        colors = ButtonDefaults.filledTonalButtonColors(
-            containerColor = if (active) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            },
-            contentColor = if (active) {
-                MaterialTheme.colorScheme.onPrimary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            }
-        )
-    ) {
-        content()
-    }
-}
-
-private val VisibilityIcon: ImageVector by lazy {
-    materialVectorIcon(
-        name = "Visibility",
-        pathData = "M12,4.5C7,4.5 2.73,7.61 1,12c1.73,4.39 6,7.5 11,7.5s9.27,-3.11 11,-7.5c-1.73,-4.39 -6,-7.5 -11,-7.5zM12,17c-2.76,0 -5,-2.24 -5,-5s2.24,-5 5,-5 5,2.24 5,5 -2.24,5 -5,5zM12,9c-1.66,0 -3,1.34 -3,3s1.34,3 3,3 3,-1.34 3,-3 -1.34,-3 -3,-3z"
-    )
-}
-
-private val VisibilityOffIcon: ImageVector by lazy {
-    materialVectorIcon(
-        name = "VisibilityOff",
-        pathData = "M12,7c2.76,0 5,2.24 5,5 0,0.65 -0.13,1.26 -0.36,1.83l2.92,2.92c1.51,-1.26 2.7,-2.89 3.43,-4.75 -1.73,-4.39 -6,-7.5 -11,-7.5 -1.4,0 -2.74,0.25 -3.98,0.7l2.16,2.16C10.74,7.13 11.35,7 12,7zM2,4.27l2.28,2.28 0.46,0.46C3.08,8.3 1.78,10.02 1,12c1.73,4.39 6,7.5 11,7.5 1.55,0 3.03,-0.3 4.38,-0.84l0.42,0.42L19.73,22 21,20.73 3.27,3 2,4.27zM7.53,9.8l1.55,1.55c-0.05,0.21 -0.08,0.43 -0.08,0.65 0,1.66 1.34,3 3,3 0.22,0 0.44,-0.03 0.65,-0.08l1.55,1.55c-0.67,0.33 -1.41,0.53 -2.2,0.53 -2.76,0 -5,-2.24 -5,-5 0,-0.79 0.2,-1.53 0.53,-2.2zM11.84,9.02l3.15,3.15 0.02,-0.16c0,-1.66 -1.34,-3 -3,-3l-0.17,0.01z"
-    )
 }
 
 private const val ANTIGRAVITY_PATH =
