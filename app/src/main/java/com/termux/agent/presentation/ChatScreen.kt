@@ -83,6 +83,8 @@ fun ChatScreen(
     adapterEvent: AdapterEvent?,
     messages: List<ChatMessage>,
     selectedWorkspacePath: String,
+    promptText: String,
+    onPromptTextChange: (String) -> Unit,
     onOpenWorkspacePicker: () -> Unit,
     onLaunchAgent: () -> Unit,
     onSendPrompt: (String) -> Unit,
@@ -94,7 +96,6 @@ fun ChatScreen(
     onOpenSessions: () -> Unit = {},
     onNewSession: () -> Unit = {}
 ) {
-    var promptInput by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val supportsSessions = activeAdapter.supportsSessions
     val hasPermissionCard = agentState == AgentState.WAITING_PERMISSION &&
@@ -108,10 +109,10 @@ fun ChatScreen(
     }
 
     val submitPrompt = {
-        val text = promptInput.trim()
+        val text = promptText.trim()
         if (text.isNotEmpty()) {
             onSendPrompt(text)
-            promptInput = ""
+            onPromptTextChange("")
         }
     }
 
@@ -189,10 +190,10 @@ fun ChatScreen(
         HorizontalDivider()
 
         ChatInputBar(
-            promptText = promptInput,
+            promptText = promptText,
             agentName = activeAdapter.name,
             agentState = agentState,
-            onTextChange = { promptInput = it },
+            onTextChange = onPromptTextChange,
             onSubmit = submitPrompt,
             modifier = Modifier
                 .fillMaxWidth()

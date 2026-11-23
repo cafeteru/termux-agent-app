@@ -118,6 +118,7 @@ class MainActivityE2ETest {
                 }
 
                 // Empty submission should send "\r" to the PTY and receive ACK:.
+                composeRule.onNodeWithTag("interactive_terminal_input").performTextInput("\r")
                 composeRule.waitUntil(timeoutMillis = 5_000) {
                     composeRule.onAllNodesWithText("ACK:\n", substring = true)
                         .fetchSemanticsNodes()
@@ -307,6 +308,13 @@ class MainActivityE2ETest {
 
                 assertEquals("copilot", SshSessionManager.activeAdapter.value.id)
                 composeRule.onNodeWithText("GitHub Copilot CLI").assertIsDisplayed()
+
+                // Draft text survives switching between Chat and Terminal
+                composeRule.onNodeWithTag("chat_input_field").performTextInput("Draft message")
+                composeRule.onNodeWithText("Terminal").performClick()
+                composeRule.onNodeWithText("Chat").performClick()
+                composeRule.onNodeWithTag("chat_input_field").assertTextContains("Draft message")
+                composeRule.onNodeWithTag("chat_input_field").performTextClearance()
 
                 // Submit prompt in Chat input field
                 composeRule.onNodeWithTag("chat_input_field").performTextInput("Hello agent")

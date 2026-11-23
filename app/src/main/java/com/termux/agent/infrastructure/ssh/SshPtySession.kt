@@ -81,6 +81,7 @@ class SshPtySession {
     private var shellGeneration: Long = 0L
     private var conversationGeneration: Long = 0L
     private var awaitingNewConversation: Boolean = false
+    private var agentProcessRunning: Boolean = false
     private var baselineConversationIds: Set<String> = emptySet()
     private val knownIdsByAgent: MutableMap<String, Set<String>> = mutableMapOf()
 
@@ -101,8 +102,10 @@ class SshPtySession {
             conversationGeneration++
             shellDirty = false
             awaitingNewConversation = false
+            agentProcessRunning = false
             baselineConversationIds = emptySet()
             knownIdsByAgent.clear()
+            agentProcessRunning = false
             _chatMessages.value = emptyList()
             _activeConversationId.value = null
             _activeConversationTitle.value = null
@@ -184,6 +187,7 @@ class SshPtySession {
             if (switched) {
                 conversationGeneration++
                 awaitingNewConversation = false
+                agentProcessRunning = false
                 baselineConversationIds = knownIdsByAgent[adapter.id.lowercase()].orEmpty()
                 _activeConversationId.value = null
                 _activeConversationTitle.value = null
@@ -384,7 +388,11 @@ class SshPtySession {
         }
 
         val command = adapter.launchConversationCommand(workspacePath, cleanId)
-        return sendCommand(command)
+        val launched = sendCommand(command)
+        if (launched) {
+            synchronized(lock) { agentProcessRunning = true }
+        }
+        return launched
     }
 
     fun openConversationAsync(sessionSummary: AgentSessionSummary) {
@@ -441,7 +449,11 @@ class SshPtySession {
         if (needsReopen && !reopenShellChannel()) {
             return false
         }
-        return sendCommand(adapter.launchCommand(workspacePath))
+        val launched = sendCommand(adapter.launchCommand(workspacePath))
+        if (launched) {
+            synchronized(lock) { agentProcessRunning = true }
+        }
+        return launched
     }
 
     fun startNewSessionAsync(
@@ -555,7 +567,19 @@ class SshPtySession {
     /**
      * Sends a user prompt via the active adapter to the PTY.
      */
-    fun sendPrompt(text: String): Boolean {
+    fun sendPrompt(text: String, workspacePath: String = ""): Boolean {
+        val needsLaunch = synchronized(lock) { !agentProcessRunning }
+        if (needsLaunch) {
+            if (!launchActiveAgent(workspacePath)) return false
+            try {
+                // shortcut: fixed startup wait; replace with adapter-ready PTY detection.
+                Thread.sleep(750)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return false
+            }
+        }
+
         val activeOutput = synchronized(lock) {
             if (channel?.isConnected == true) outputStream else null
         } ?: return false
@@ -610,8 +634,8 @@ class SshPtySession {
     /**
      * Enqueues prompt delivery on a daemon writer thread without blocking UI callers.
      */
-    fun sendPromptAsync(text: String) {
-        writeExecutor.execute { sendPrompt(text) }
+    fun sendPromptAsync(text: String, workspacePath: String = "") {
+        writeExecutor.execute { sendPrompt(text, workspacePath) }
     }
 
     /**
@@ -703,6 +727,7 @@ class SshPtySession {
             terminalBuffer.clear()
             lastOutputTimestamp = 0L
             shellDirty = false
+            agentProcessRunning = false
             val detached = SessionResources(
                 input = inputStream,
                 output = outputStream,
@@ -1102,138 +1127,4 @@ class SshPtySession {
         val third: C,
         val fourth: D
     )
-}
-
-/**
- * Process-wide holder for the active SSH PTY session.
- */
-object SshSessionManager {
-    private val activeSession = SshPtySession()
-    private val autoConnectLock = Any()
-    private var initialAutoConnectConsumed = false
-
-    val connectionState: StateFlow<ConnectionState> = activeSession.connectionState
-    val ptyOutput: StateFlow<String> = activeSession.ptyOutput
-    val currentCommandLine: StateFlow<String> = activeSession.currentCommandLine
-    val activeAdapter: StateFlow<AgentAdapter> = activeSession.activeAdapter
-    val adapterEvent: StateFlow<AdapterEvent?> = activeSession.adapterEvent
-    val agentState: StateFlow<AgentState> = activeSession.agentState
-    val chatMessages: StateFlow<List<ChatMessage>> = activeSession.chatMessages
-    val agentSessions: StateFlow<List<AgentSessionSummary>> = activeSession.agentSessions
-    val agentSessionsLoading: StateFlow<Boolean> = activeSession.agentSessionsLoading
-    val agentSessionsError: StateFlow<String?> = activeSession.agentSessionsError
-    val activeConversationId: StateFlow<String?> = activeSession.activeConversationId
-    val activeConversationTitle: StateFlow<String?> = activeSession.activeConversationTitle
-
-    /**
-     * Returns true once per process so the UI only auto-connects on cold start.
-     */
-    fun consumeInitialAutoConnect(): Boolean = synchronized(autoConnectLock) {
-        if (initialAutoConnectConsumed) return false
-        initialAutoConnectConsumed = true
-        true
-    }
-
-    /**
-     * Encodes a command with a PTY carriage return (`\r`) so both shells and raw TUIs treat it as Enter.
-     */
-    internal fun formatCommandPayload(command: String): ByteArray =
-        (command + "\r").toByteArray(Charsets.UTF_8)
-
-    /**
-     * Applies sticky CTRL and ALT modifiers to a character or terminal escape sequence.
-     */
-    fun applyModifiers(input: String, ctrl: Boolean, alt: Boolean): String {
-        if (input.isEmpty()) return ""
-        val withCtrl = if (ctrl) {
-            val ctrlChar = ((input[0].uppercaseChar().code) and 0x1F).toChar()
-            ctrlChar + input.substring(1)
-        } else {
-            input
-        }
-        return if (alt) "\u001B$withCtrl" else withCtrl
-    }
-
-    fun setActiveAdapter(adapter: AgentAdapter) = activeSession.setActiveAdapter(adapter)
-
-    fun setActiveAdapterById(id: String) = activeSession.setActiveAdapterById(id)
-
-    fun addChatMessage(message: ChatMessage) = activeSession.addChatMessage(message)
-
-    fun clearChat() = activeSession.clearChat()
-
-    fun appendTranscriptLine(jsonLine: String) = activeSession.appendTranscriptLine(jsonLine)
-
-    fun refreshAgentSessions(timeoutMs: Int = AppConfig.DEFAULT_CONNECT_TIMEOUT_MS): AgentSessionListingResult =
-        activeSession.refreshAgentSessions(timeoutMs)
-
-    fun refreshAgentSessionsAsync() = activeSession.refreshAgentSessionsAsync()
-
-    fun openConversation(sessionSummary: AgentSessionSummary): Boolean =
-        activeSession.openConversation(sessionSummary)
-
-    fun openConversation(
-        conversationId: String,
-        workspacePath: String = "",
-        title: String? = null
-    ): Boolean = activeSession.openConversation(conversationId, workspacePath, title)
-
-    fun openConversationAsync(sessionSummary: AgentSessionSummary) =
-        activeSession.openConversationAsync(sessionSummary)
-
-    fun openConversationAsync(
-        conversationId: String,
-        workspacePath: String = "",
-        title: String? = null
-    ) = activeSession.openConversationAsync(conversationId, workspacePath, title)
-
-    fun startNewSession(
-        workspacePath: String = "",
-        launchAgent: Boolean = true
-    ): Boolean = activeSession.startNewSession(workspacePath, launchAgent)
-
-    fun startNewSessionAsync(
-        workspacePath: String = "",
-        launchAgent: Boolean = true
-    ) = activeSession.startNewSessionAsync(workspacePath, launchAgent)
-
-    fun launchActiveAgent(workspacePath: String = ""): Boolean =
-        activeSession.launchActiveAgent(workspacePath)
-
-    fun launchActiveAgentAsync(workspacePath: String = "") =
-        activeSession.launchActiveAgentAsync(workspacePath)
-
-    fun listDirectories(
-        path: String = "",
-        timeoutMs: Int = AppConfig.DEFAULT_CONNECT_TIMEOUT_MS
-    ): DirectoryListingResult = activeSession.listDirectories(path, timeoutMs)
-
-    internal fun emitAdapterEventForTesting(event: AdapterEvent) =
-        activeSession.emitAdapterEventForTesting(event)
-
-    fun sendPrompt(text: String): Boolean = activeSession.sendPrompt(text)
-
-    fun sendPromptAsync(text: String) = activeSession.sendPromptAsync(text)
-
-    fun resolvePermission(allow: Boolean, optionIndex: Int? = null): Boolean =
-        activeSession.resolvePermission(allow, optionIndex)
-
-    fun resolvePermissionAsync(allow: Boolean, optionIndex: Int? = null) =
-        activeSession.resolvePermissionAsync(allow, optionIndex)
-
-    fun connect(
-        isTermuxInstalled: () -> Boolean,
-        config: SshConfig,
-        timeoutMs: Int = AppConfig.DEFAULT_CONNECT_TIMEOUT_MS
-    ): ConnectionState = activeSession.connect(isTermuxInstalled, config, timeoutMs)
-
-    fun sendCommand(command: String): Boolean = activeSession.sendCommand(command)
-
-    fun sendCommandAsync(command: String) = activeSession.sendCommandAsync(command)
-
-    fun sendRaw(raw: String): Boolean = activeSession.sendRaw(raw)
-
-    fun sendRawAsync(raw: String) = activeSession.sendRawAsync(raw)
-
-    fun disconnect() = activeSession.disconnect(updateState = true)
 }
