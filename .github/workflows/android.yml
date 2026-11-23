@@ -75,7 +75,6 @@ jobs:
           gradle-version: 8.11.1
 
       - name: Assemble Debug APK
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: gradle assembleDebug --stacktrace
 
       - name: Upload Debug APK

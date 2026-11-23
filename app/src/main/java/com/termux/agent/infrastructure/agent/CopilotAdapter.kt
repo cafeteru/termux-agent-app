@@ -21,6 +21,8 @@ class CopilotAdapter : AgentAdapter {
         get() = _currentState
 
     private var lastEmittedPermission: String? = null
+    private var activePermissionOptions: List<String> = emptyList()
+    private var activePermissionSelectedIndex: Int = 0
 
     override fun launchCommand(workspacePath: String): String =
         buildWorkspaceLaunchCommand(workspacePath, "copilot")
@@ -43,10 +45,20 @@ class CopilotAdapter : AgentAdapter {
     }
 
     override fun resolvePermission(ptyOutput: OutputStream, allow: Boolean, optionIndex: Int?) {
-        val payload = if (allow) {
-            if (optionIndex != null) "${optionIndex + 1}\r" else "y\r"
+        val payload = if (activePermissionOptions.isNotEmpty()) {
+            val target = (optionIndex ?: if (allow) 0 else activePermissionOptions.lastIndex)
+                .coerceIn(0, activePermissionOptions.lastIndex)
+            val delta = target - activePermissionSelectedIndex
+            val arrow = (if (delta >= 0) "\u001B[B" else "\u001B[A").toByteArray(Charsets.UTF_8)
+            repeat(kotlin.math.abs(delta)) {
+                ptyOutput.write(arrow)
+                ptyOutput.flush()
+            }
+            activePermissionOptions = emptyList()
+            activePermissionSelectedIndex = 0
+            "\r"
         } else {
-            "n\r"
+            if (allow) "y\r" else "n\r"
         }
         ptyOutput.write(payload.toByteArray(Charsets.UTF_8))
         ptyOutput.flush()
@@ -62,7 +74,15 @@ class CopilotAdapter : AgentAdapter {
     override fun reset() {
         _currentState = AgentState.IDLE
         lastEmittedPermission = null
+        activePermissionOptions = emptyList()
+        activePermissionSelectedIndex = 0
     }
+
+    override fun isPromptReady(screenLines: List<String>): Boolean =
+        screenLines.takeLast(10).any {
+            val line = it.trim()
+            isPromptLine(line) || line.contains(":~$ ") || line.endsWith("$ ")
+        }
 
     override fun onScreenUpdated(screenLines: List<String>, idleMs: Long): AdapterEvent? {
         val recentLines = screenLines.takeLast(20).map { it.trim() }.filter { it.isNotEmpty() }
@@ -120,6 +140,12 @@ class CopilotAdapter : AgentAdapter {
             } ?: "Do you trust the files in this folder?"
 
             val id = "copilot-folder-trust-${System.currentTimeMillis()}"
+            activePermissionOptions = listOf(
+                "Yes",
+                "Yes, remember this folder for future sessions",
+                "No, cancel"
+            )
+            activePermissionSelectedIndex = 0
             return AdapterEvent.PermissionRequired(
                 id = id,
                 tool = "workspace",

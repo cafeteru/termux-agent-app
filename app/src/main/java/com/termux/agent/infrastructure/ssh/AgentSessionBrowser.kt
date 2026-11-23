@@ -130,7 +130,22 @@ object AgentSessionBrowser {
             "exit 0'"
 
     internal const val LIST_COPILOT_IDS_COMMAND =
-        "sh -c 'ls -t \"\$HOME\"/.copilot/session-state/*/events.jsonl 2>/dev/null | " +
+        "sh -c 'db=\"\$HOME/.copilot/session-store.db\"; " +
+            "if [ -r \"\$db\" ] && command -v python3 >/dev/null 2>&1; then " +
+            "python3 - \"\$db\" << \"PYEOF\"\n" +
+            "import sqlite3, sys\n" +
+            "try:\n" +
+            "    con = sqlite3.connect(f\"file:{sys.argv[1]}?mode=ro\", uri=True, timeout=2.0)\n" +
+            "    rows = con.execute(\"SELECT id FROM sessions WHERE COALESCE(summary, \\\"\\\") != \\\"\\\" OR id IN (SELECT DISTINCT session_id FROM turns) ORDER BY COALESCE(updated_at, created_at, \\\"\\\") DESC LIMIT 200\").fetchall()\n" +
+            "    for row in rows:\n" +
+            "        print(row[0])\n" +
+            "    con.close()\n" +
+            "except Exception:\n" +
+            "    sys.exit(1)\n" +
+            "PYEOF\n" +
+            "if [ \$? -eq 0 ]; then exit 0; fi; " +
+            "fi; " +
+            "ls -t \"\$HOME\"/.copilot/session-state/*/events.jsonl 2>/dev/null | " +
             "while IFS= read -r f; do [ -r \"\$f\" ] || continue; d=\${f%/events.jsonl}; printf \"%s\\n\" \"\${d##*/}\"; done; exit 0'"
 
     private val CONVERSATION_ID_REGEX = Regex("""^[A-Za-z0-9_-]{1,128}$""")

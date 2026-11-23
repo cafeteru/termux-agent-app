@@ -321,9 +321,8 @@ class MainActivityE2ETest {
                 composeRule.onNodeWithTag("chat_send_button").performClick()
 
                 composeRule.waitUntil(timeoutMillis = 5_000) {
-                    composeRule.onAllNodesWithText("Hello agent")
-                        .fetchSemanticsNodes()
-                        .isNotEmpty()
+                    Shadows.shadowOf(Looper.getMainLooper()).idle()
+                    SshSessionManager.chatMessages.value.any { it.content == "Hello agent" }
                 }
                 composeRule.onNodeWithText("Hello agent").assertIsDisplayed()
                 assertTrue(SshSessionManager.chatMessages.value.any { it.content == "Hello agent" })
@@ -418,9 +417,8 @@ class MainActivityE2ETest {
                 composeRule.onNodeWithTag("chat_input_field").performTextInput("Hola menú")
                 composeRule.onNodeWithTag("chat_send_button").performClick()
                 composeRule.waitUntil(timeoutMillis = 5_000) {
-                    composeRule.onAllNodesWithText("Hola menú")
-                        .fetchSemanticsNodes()
-                        .isNotEmpty()
+                    Shadows.shadowOf(Looper.getMainLooper()).idle()
+                    SshSessionManager.chatMessages.value.any { it.content == "Hola menú" }
                 }
                 assertTrue(SshSessionManager.chatMessages.value.any { it.content == "Hola menú" })
 

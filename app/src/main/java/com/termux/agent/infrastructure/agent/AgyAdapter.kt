@@ -123,6 +123,16 @@ class AgyAdapter(private val interKeyDelayMs: Long = 35L) : AgentAdapter {
         resolvedPermissionKey = null
     }
 
+    override fun isPromptReady(screenLines: List<String>): Boolean =
+        screenLines.takeLast(10).any {
+            val line = it.trim()
+            line.contains("›") ||
+                line.endsWith("?") ||
+                line.endsWith("agy>") ||
+                line.contains(":~$ ") ||
+                line.endsWith("$ ")
+        }
+
     @Synchronized
     override fun onScreenUpdated(screenLines: List<String>, idleMs: Long): AdapterEvent? {
         val rawWindow = screenLines.takeLast(50)

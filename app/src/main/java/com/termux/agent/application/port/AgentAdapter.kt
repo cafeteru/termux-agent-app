@@ -27,6 +27,7 @@ interface AgentAdapter {
     fun onScreenUpdated(screenLines: List<String>, idleMs: Long): AdapterEvent?
     fun sendPrompt(ptyOutput: OutputStream, text: String)
     fun resolvePermission(ptyOutput: OutputStream, allow: Boolean, optionIndex: Int? = null)
+    fun isPromptReady(screenLines: List<String>): Boolean = false
     fun markCompleted() = Unit
     fun reset()
 }
