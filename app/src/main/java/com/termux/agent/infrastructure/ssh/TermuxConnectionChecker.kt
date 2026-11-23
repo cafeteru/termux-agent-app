@@ -52,6 +52,11 @@ object TermuxConnectionChecker {
                 "Termux (${AppConfig.TERMUX_PACKAGE_NAME}) no está instalado."
             )
         }
+        if (host != AppConfig.DEFAULT_SSH_HOST) {
+            return ConnectionState.Error(
+                "Conexión SSH limitada a loopback ($host no permitido)."
+            )
+        }
 
         return try {
             Socket().use { socket ->
@@ -145,6 +150,9 @@ object TermuxConnectionChecker {
         config: SshConfig,
         timeoutMs: Int = AppConfig.DEFAULT_CONNECT_TIMEOUT_MS
     ): Session {
+        if (config.host != AppConfig.DEFAULT_SSH_HOST) {
+            throw IllegalArgumentException("SSH only allowed on loopback")
+        }
         val jsch = JSch()
         if (config.authMethod == AuthMethod.PUBLIC_KEY) {
             jsch.addIdentity(

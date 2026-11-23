@@ -1,5 +1,7 @@
 package com.termux.agent.infrastructure.ssh
 
+import android.os.Handler
+import android.os.Looper
 import com.termux.agent.application.config.AppConfig
 import com.jcraft.jsch.ChannelExec
 import com.jcraft.jsch.ChannelShell
@@ -17,6 +19,9 @@ import kotlinx.coroutines.flow.update
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
@@ -67,6 +72,7 @@ class SshPtySession {
 
     @Volatile
     private var lastOutputTimestamp: Long = 0L
+    private var completedTurnCounter: Long = 0L
 
     @Volatile
     private var shellDirty: Boolean = false
@@ -96,7 +102,6 @@ class SshPtySession {
         disconnect(updateState = false)
 
         val (currentGeneration, currentShellGeneration) = synchronized(lock) {
-            terminalBuffer.clear()
             val nextSessionGen = ++sessionGeneration
             val nextShellGen = ++shellGeneration
             conversationGeneration++
@@ -106,9 +111,6 @@ class SshPtySession {
             baselineConversationIds = emptySet()
             knownIdsByAgent.clear()
             agentProcessRunning = false
-            _chatMessages.value = emptyList()
-            _activeConversationId.value = null
-            _activeConversationTitle.value = null
             _agentSessions.value = emptyList()
             _agentSessionsError.value = null
             _agentSessionsLoading.value = false
@@ -217,13 +219,7 @@ class SshPtySession {
     }
 
     fun clearChat() {
-        synchronized(lock) {
-            conversationGeneration++
-            awaitingNewConversation = false
-            _chatMessages.value = emptyList()
-            _activeConversationId.value = null
-            _activeConversationTitle.value = null
-        }
+        startNewSession(workspacePath = "", launchAgent = true)
     }
 
     fun appendTranscriptLine(jsonLine: String): ChatMessage? {
@@ -530,7 +526,12 @@ class SshPtySession {
 
             val outBuffer = ByteArrayOutputStream()
             val chunk = ByteArray(4096)
+            val deadlineNanos = System.nanoTime() + timeoutMs.coerceAtLeast(1).toLong() * 1_000_000L
             while (true) {
+                if (System.nanoTime() >= deadlineNanos) {
+                    runCatching { exec?.disconnect() }
+                    throw java.net.SocketTimeoutException("SSH exec timeout")
+                }
                 val read = stdout.read(chunk)
                 if (read < 0) break
                 if (read == 0) continue
@@ -571,13 +572,19 @@ class SshPtySession {
         val needsLaunch = synchronized(lock) { !agentProcessRunning }
         if (needsLaunch) {
             if (!launchActiveAgent(workspacePath)) return false
-            try {
-                // shortcut: fixed startup wait; replace with adapter-ready PTY detection.
-                Thread.sleep(750)
-            } catch (_: InterruptedException) {
-                Thread.currentThread().interrupt()
-                return false
+            val readyDeadline = System.currentTimeMillis() + 5_000L
+            while (System.currentTimeMillis() < readyDeadline) {
+                val lines = synchronized(lock) { terminalBuffer.getLines() }
+                if (_activeAdapter.value.isPromptReady(lines)) break
+                try {
+                    Thread.sleep(50)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return false
+                }
             }
+            // A timeout is a bounded fallback: deliver the prompt even if a CLI
+            // did not expose a recognizable prompt line, rather than losing it.
         }
 
         val activeOutput = synchronized(lock) {
@@ -636,6 +643,19 @@ class SshPtySession {
      */
     fun sendPromptAsync(text: String, workspacePath: String = "") {
         writeExecutor.execute { sendPrompt(text, workspacePath) }
+    }
+
+    fun sendPromptAsync(
+        text: String,
+        workspacePath: String = "",
+        onResult: (Boolean) -> Unit
+    ) {
+        writeExecutor.execute {
+            val sent = sendPrompt(text, workspacePath)
+            Handler(Looper.getMainLooper()).post {
+                onResult(sent)
+            }
+        }
     }
 
     /**
@@ -809,6 +829,9 @@ class SshPtySession {
 
     private fun readPtyLoop(stream: InputStream, sessionGen: Long, shellGen: Long) {
         val buffer = ByteArray(4096)
+        val decoder = StandardCharsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPLACE)
+            .onUnmappableCharacter(CodingErrorAction.REPLACE)
         try {
             while (true) {
                 val bytesRead = stream.read(buffer)
@@ -823,7 +846,8 @@ class SshPtySession {
                 }
                 if (!isCurrentSession) break
 
-                val chunk = String(buffer, 0, bytesRead, Charsets.UTF_8)
+                val chunk = decoder.decode(ByteBuffer.wrap(buffer, 0, bytesRead)).toString()
+                if (chunk.isEmpty()) continue
                 val now = System.currentTimeMillis()
                 val idleMs = if (lastOutputTimestamp > 0L) now - lastOutputTimestamp else 0L
                 lastOutputTimestamp = now
@@ -853,7 +877,13 @@ class SshPtySession {
     }
 
     private fun applyAdapterEvent(event: AdapterEvent) {
-        _adapterEvent.value = event
+        val emitted = if (event is AdapterEvent.TurnCompleted) {
+            synchronized(lock) {
+                val id = ++completedTurnCounter
+                AdapterEvent.TurnCompleted(event.summary, id)
+            }
+        } else event
+        _adapterEvent.value = emitted
         if (event is AdapterEvent.TurnCompleted && event.summary.isNotBlank()) {
             synchronized(lock) {
                 _chatMessages.update { list ->

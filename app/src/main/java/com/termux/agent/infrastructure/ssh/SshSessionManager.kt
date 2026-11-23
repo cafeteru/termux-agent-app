@@ -120,6 +120,12 @@ object SshSessionManager {
     fun sendPromptAsync(text: String, workspacePath: String = "") =
         activeSession.sendPromptAsync(text, workspacePath)
 
+    fun sendPromptAsync(
+        text: String,
+        workspacePath: String = "",
+        onResult: (Boolean) -> Unit
+    ) = activeSession.sendPromptAsync(text, workspacePath, onResult)
+
     fun resolvePermission(allow: Boolean, optionIndex: Int? = null): Boolean =
         activeSession.resolvePermission(allow, optionIndex)
 

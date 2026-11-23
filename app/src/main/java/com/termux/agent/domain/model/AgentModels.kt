@@ -15,7 +15,10 @@ sealed class AdapterEvent {
         val command: String,
         val options: List<String> = listOf("Allow", "Deny")
     ) : AdapterEvent()
-    data class TurnCompleted(val summary: String) : AdapterEvent()
+    data class TurnCompleted(
+        val summary: String,
+        val turnId: Long = 0L
+    ) : AdapterEvent()
 }
 
 data class ChatMessage(

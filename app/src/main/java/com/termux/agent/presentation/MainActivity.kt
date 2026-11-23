@@ -116,6 +116,7 @@ import com.termux.agent.infrastructure.android.AgentForegroundService
 import com.termux.agent.infrastructure.agent.AdapterRegistry
 import com.termux.agent.infrastructure.ssh.*
 import com.termux.agent.infrastructure.terminal.AnsiTextParser
+import com.termux.agent.domain.model.AgentState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -124,7 +125,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        requestNotificationPermissionIfNeeded()
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -166,6 +166,19 @@ enum class MainScreen {
 @Composable
 fun StatusScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val activity = context as? ComponentActivity
+    var showNotificationRationale by rememberSaveable { mutableStateOf(false) }
+    var notificationPromptChecked by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(notificationPromptChecked) {
+        if (!notificationPromptChecked &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            showNotificationRationale = true
+        }
+        notificationPromptChecked = true
+    }
     val clipboard = LocalClipboardManager.current
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -209,6 +222,7 @@ fun StatusScreen(modifier: Modifier = Modifier) {
         ) {
             SshSessionManager.refreshAgentSessionsAsync()
         }
+
     }
 
     BackHandler(enabled = drawerState.isOpen || currentScreen == MainScreen.CONFIG) {
@@ -217,6 +231,28 @@ fun StatusScreen(modifier: Modifier = Modifier) {
         } else {
             currentScreen = MainScreen.MAIN
         }
+    }
+
+    if (showNotificationRationale && activity != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showNotificationRationale = false },
+            title = { Text("Permitir notificaciones") },
+            text = { Text("Las notificaciones avisan turnos completados y permisos pendientes.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    showNotificationRationale = false
+                    activity.requestPermissions(
+                        arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                        100
+                    )
+                }) { Text("Permitir") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    showNotificationRationale = false
+                }) { Text("Ahora no") }
+            }
+        )
     }
 
     ModalNavigationDrawer(
@@ -234,28 +270,43 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                     agentSessionsError = agentSessionsError,
                     activeConversationId = activeConversationId,
                     onSelectAgent = { id ->
+                        if (agentState == AgentState.WORKING ||
+                            agentState == AgentState.WAITING_PERMISSION
+                        ) return@DrawerOptionsMenu
                         SshSessionManager.setActiveAdapterById(id)
                         currentScreen = MainScreen.MAIN
                         selectedTab = AppTab.CHAT
                         scope.launch { drawerState.close() }
                     },
                     onNewSession = {
+                        if (agentState == AgentState.WORKING ||
+                            agentState == AgentState.WAITING_PERMISSION
+                        ) return@DrawerOptionsMenu
                         SshSessionManager.startNewSessionAsync(selectedWorkspacePath)
                         currentScreen = MainScreen.MAIN
                         selectedTab = AppTab.CHAT
                         scope.launch { drawerState.close() }
                     },
                     onNewSessionInWorkspace = { workspacePath ->
-                        if (workspacePath.isNotBlank()) {
-                            selectedWorkspacePath = workspacePath
-                            SshConfigStore.saveWorkspacePath(context, workspacePath)
+                        if (agentState == AgentState.WORKING ||
+                            agentState == AgentState.WAITING_PERMISSION
+                        ) {
+                            Unit
+                        } else {
+                            if (workspacePath.isNotBlank()) {
+                                selectedWorkspacePath = workspacePath
+                                SshConfigStore.saveWorkspacePath(context, workspacePath)
+                            }
+                            SshSessionManager.startNewSessionAsync(workspacePath)
+                            currentScreen = MainScreen.MAIN
+                            selectedTab = AppTab.CHAT
+                            scope.launch { drawerState.close() }
                         }
-                        SshSessionManager.startNewSessionAsync(workspacePath)
-                        currentScreen = MainScreen.MAIN
-                        selectedTab = AppTab.CHAT
-                        scope.launch { drawerState.close() }
                     },
                     onSelectSession = { session ->
+                        if (agentState == AgentState.WORKING ||
+                            agentState == AgentState.WAITING_PERMISSION
+                        ) return@DrawerOptionsMenu
                         if (session.workspacePath.isNotBlank()) {
                             selectedWorkspacePath = session.workspacePath
                             SshConfigStore.saveWorkspacePath(context, session.workspacePath)
@@ -453,7 +504,12 @@ fun StatusScreen(modifier: Modifier = Modifier) {
                                         SshSessionManager.launchActiveAgentAsync(selectedWorkspacePath)
                                     },
                                     onSendPrompt = { prompt ->
-                                        SshSessionManager.sendPromptAsync(prompt, selectedWorkspacePath)
+                                        SshSessionManager.sendPromptAsync(
+                                            prompt,
+                                            selectedWorkspacePath
+                                        ) { sent ->
+                                            if (sent && chatDraft == prompt) chatDraft = ""
+                                        }
                                     },
                                     onResolvePermission = { allow, optionIndex ->
                                         AgentForegroundService.resolvePermission(context, allow, optionIndex)

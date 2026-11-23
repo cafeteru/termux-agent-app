@@ -215,22 +215,31 @@ internal fun PtyTerminalCard(
                 onValueChange = { updated ->
                     val oldText = interactiveValue.text
                     val newText = updated.text
+                    val editAtEnd = updated.selection.end == updated.text.length &&
+                        updated.selection.start == updated.selection.end
+                    if (!editAtEnd) {
+                        interactiveValue = TextFieldValue(
+                            text = oldText,
+                            selection = TextRange(oldText.length)
+                        )
+                        return@BasicTextField
+                    }
                     if (newText.length > oldText.length) {
                         val added = newText.substring(oldText.length)
-                        for (ch in added) {
-                            if (ch == '\n' || ch == '\r') {
-                                onSendRaw("\r")
-                            } else {
-                                val raw = SshSessionManager.applyModifiers(
-                                    ch.toString(),
+                        val newlineIndex = added.indexOfFirst { it == '\n' || it == '\r' }
+                        val rawText = if (newlineIndex >= 0) added.substring(0, newlineIndex) else added
+                        if (rawText.isNotEmpty()) {
+                            onSendRaw(
+                                SshSessionManager.applyModifiers(
+                                    rawText,
                                     ctrl = ctrlArmed,
                                     alt = altArmed
                                 )
-                                onSendRaw(raw)
-                                ctrlArmed = false
-                                altArmed = false
-                            }
+                            )
                         }
+                        if (newlineIndex >= 0) onSendRaw("\r")
+                        ctrlArmed = false
+                        altArmed = false
                     } else if (newText.length < oldText.length) {
                         val deletedCount = oldText.length - newText.length
                         repeat(deletedCount) {

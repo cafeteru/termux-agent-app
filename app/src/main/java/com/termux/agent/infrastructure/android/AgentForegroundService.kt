@@ -46,6 +46,9 @@ class AgentForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        ensureNotificationChannels()
+        startForegroundWithState(SshSessionManager.connectionState.value)
+        startObservingSessionEvents()
         when (intent?.action) {
             ACTION_DISCONNECT -> {
                 observerJob?.cancel()
@@ -78,8 +81,6 @@ class AgentForegroundService : Service() {
             }
         }
 
-        startForegroundWithState(SshSessionManager.connectionState.value)
-        startObservingSessionEvents()
 
         if (intent?.action == ACTION_CONNECT || intent == null) {
             executor.execute {

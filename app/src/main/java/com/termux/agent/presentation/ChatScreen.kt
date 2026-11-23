@@ -106,9 +106,11 @@ fun ChatScreen(
 
     val submitPrompt = {
         val text = promptText.trim()
-        if (text.isNotEmpty()) {
+        if (text.isNotEmpty() &&
+            agentState != AgentState.WORKING &&
+            agentState != AgentState.WAITING_PERMISSION
+        ) {
             onSendPrompt(text)
-            onPromptTextChange("")
         }
     }
 
@@ -722,7 +724,9 @@ private fun ChatInputBar(
 
         FilledIconButton(
             onClick = onSubmit,
-            enabled = promptText.isNotBlank(),
+            enabled = promptText.isNotBlank() &&
+                agentState != AgentState.WORKING &&
+                agentState != AgentState.WAITING_PERMISSION,
             modifier = Modifier.testTag("chat_send_button")
         ) {
             Icon(
