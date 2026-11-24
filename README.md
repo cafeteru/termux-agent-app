@@ -195,9 +195,9 @@ Android lifecycle, and UI consume the shared `AgentAdapter` port.
 
 Requirements:
 
-- JDK 17
+- JDK 21+ (JDK 21 in CI/Termux or JDK 25 bundled with Android Studio)
 - Android SDK platform 35
-- Gradle 8.11.1 or another version compatible with Android Gradle Plugin 8.7.3
+- Gradle 9.6.0 (included via `./gradlew` / `.\gradlew.bat`) with Android Gradle Plugin 9.5.2
 
 Create `local.properties` with the local Android SDK path:
 
@@ -208,16 +208,16 @@ sdk.dir=/path/to/Android/Sdk
 Then run the fast unit suite:
 
 ```bash
-gradle testDebugUnitTest assembleDebug --no-daemon
+./gradlew testDebugUnitTest assembleDebug --no-daemon
 ```
 
 Run the slower SSH/Compose E2E suite separately:
 
 ```bash
-gradle testDebugE2E --no-daemon
+./gradlew testDebugE2E --no-daemon
 ```
 
-Use `gradle testDebugAll assembleDebug --no-daemon` for full local verification.
+Use `./gradlew testDebugAll assembleDebug --no-daemon` for full local verification.
 
 The APK is written to:
 
@@ -225,7 +225,7 @@ The APK is written to:
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-On Termux, the project uses the locally installed Android SDK and ARM64 `aapt2`.
+On Termux, the project uses the locally installed Android SDK, local `gradle`, and ARM64 `aapt2`.
 The host-specific paths belong in git-ignored `local.properties` and user-level
 `~/.gradle/gradle.properties`.
 
@@ -249,19 +249,19 @@ The test suite covers:
 Run the fast unit tests with:
 
 ```bash
-gradle testDebugUnitTest --no-daemon
+./gradlew testDebugUnitTest --no-daemon
 ```
 
 Run slower SSH/Compose/Robolectric E2E tests separately:
 
 ```bash
-gradle testDebugE2E --no-daemon
+./gradlew testDebugE2E --no-daemon
 ```
 
 Run both suites for full local verification:
 
 ```bash
-gradle testDebugAll --no-daemon
+./gradlew testDebugAll --no-daemon
 ```
 
 Tests run on any supported development host. Termux-specific shell contract tests

@@ -2,19 +2,18 @@ package com.termux.agent
 
 import com.termux.agent.infrastructure.agent.AdapterRegistry
 import com.termux.agent.infrastructure.ssh.*
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.time.ZoneOffset
 
 class AgentSessionBrowserTest {
 
-    @get:Rule
-    val tempFolder = TemporaryFolder()
+    @TempDir
+    lateinit var tempFolder: File
 
     @Test
     fun supportsSessionsAndCommandDispatchCoverAgyAndCopilot() {
@@ -176,16 +175,16 @@ class AgentSessionBrowserTest {
     fun listAgySessionsShellCommandQueriesReadOnlyDbFallsBackToBrainAndHandlesEmptyHome() {
         HostTestSupport.assumeShellContract(
             AgentSessionBrowser.LIST_AGY_SESSIONS_COMMAND,
-            tempFolder.root,
+            tempFolder,
             requiresPython = true
         )
-        val emptyHome = tempFolder.newFolder("empty-agy-home")
+        val emptyHome = File(tempFolder, "empty-agy-home").apply { mkdirs() }
         assertEquals(
             AgentSessionListingResult.Success(emptyList()),
             runSessionsCommand(AgentSessionBrowser.LIST_AGY_SESSIONS_COMMAND, emptyHome.absolutePath)
         )
 
-        val fallbackHome = tempFolder.newFolder("fallback-agy-home")
+        val fallbackHome = File(tempFolder, "fallback-agy-home").apply { mkdirs() }
         val oldTranscript = File(fallbackHome, ".gemini/antigravity-cli/brain/sess-old/.system_generated/logs/transcript.jsonl")
         val newTranscript = File(fallbackHome, ".gemini/antigravity-cli/brain/sess-new/.system_generated/logs/transcript.jsonl")
         oldTranscript.parentFile?.mkdirs()
@@ -196,7 +195,7 @@ class AgentSessionBrowserTest {
         newTranscript.setLastModified(1_800_000_000_000L)
 
         val fallbackResult = runSessionsCommand(AgentSessionBrowser.LIST_AGY_SESSIONS_COMMAND, fallbackHome.absolutePath)
-        assertTrue("Expected Success but got $fallbackResult", fallbackResult is AgentSessionListingResult.Success)
+        assertTrue(fallbackResult is AgentSessionListingResult.Success, "Expected Success but got $fallbackResult")
         assertEquals(
             listOf("sess-new", "sess-old"),
             (fallbackResult as AgentSessionListingResult.Success).sessions.map { it.id }
@@ -206,7 +205,7 @@ class AgentSessionBrowserTest {
             runIdsCommand(AgentSessionBrowser.LIST_AGY_IDS_COMMAND, fallbackHome.absolutePath)
         )
 
-        val dbHome = tempFolder.newFolder("db-agy-home")
+        val dbHome = File(tempFolder, "db-agy-home").apply { mkdirs() }
         val agyDir = File(dbHome, ".gemini/antigravity-cli").apply { mkdirs() }
         val dbFile = File(agyDir, "conversation_summaries.db")
         val pyExit = ProcessBuilder(
@@ -244,7 +243,7 @@ class AgentSessionBrowserTest {
         assertEquals(0, pyExit)
 
         val dbResult = runSessionsCommand(AgentSessionBrowser.LIST_AGY_SESSIONS_COMMAND, dbHome.absolutePath)
-        assertTrue("Expected Success but got $dbResult", dbResult is AgentSessionListingResult.Success)
+        assertTrue(dbResult is AgentSessionListingResult.Success, "Expected Success but got $dbResult")
         val dbSessions = (dbResult as AgentSessionListingResult.Success).sessions
         assertEquals(listOf("id-running", "id-older"), dbSessions.map { it.id })
         assertTrue(dbSessions[0].isRunning)
@@ -257,17 +256,17 @@ class AgentSessionBrowserTest {
     fun listCopilotSessionsShellCommandQueriesSessionStoreFallsBackToWorkspaceYamlAndHandlesEmptyHome() {
         HostTestSupport.assumeShellContract(
             AgentSessionBrowser.LIST_COPILOT_SESSIONS_COMMAND,
-            tempFolder.root,
+            tempFolder,
             requiresPython = true
         )
-        val emptyHome = tempFolder.newFolder("empty-copilot-home")
+        val emptyHome = File(tempFolder, "empty-copilot-home").apply { mkdirs() }
         assertEquals(
             AgentSessionListingResult.Success(emptyList()),
             runSessionsCommand(AgentSessionBrowser.LIST_COPILOT_SESSIONS_COMMAND, emptyHome.absolutePath)
         )
 
         // Fallback scanning session-state/*/events.jsonl + workspace.yaml (skips directories missing events.jsonl)
-        val fallbackHome = tempFolder.newFolder("fallback-copilot-home")
+        val fallbackHome = File(tempFolder, "fallback-copilot-home").apply { mkdirs() }
         val noEventsDir = File(fallbackHome, ".copilot/session-state/cop-no-events").apply { mkdirs() }
         File(noEventsDir, "workspace.yaml").writeText("id: cop-no-events\ncwd: /home/termux/ignored\nname: Ignored\n")
 
@@ -287,7 +286,7 @@ class AgentSessionBrowserTest {
         )
 
         val fallbackResult = runSessionsCommand(AgentSessionBrowser.LIST_COPILOT_SESSIONS_COMMAND, fallbackHome.absolutePath)
-        assertTrue("Expected Success but got $fallbackResult", fallbackResult is AgentSessionListingResult.Success)
+        assertTrue(fallbackResult is AgentSessionListingResult.Success, "Expected Success but got $fallbackResult")
         val fallbackSessions = (fallbackResult as AgentSessionListingResult.Success).sessions
         assertEquals(listOf("cop-new", "cop-old"), fallbackSessions.map { it.id })
         assertEquals(listOf("New Copilot", "Old Copilot"), fallbackSessions.map { it.title })
@@ -298,7 +297,7 @@ class AgentSessionBrowserTest {
         )
 
         // Real session-store.db via python3
-        val dbHome = tempFolder.newFolder("db-copilot-home")
+        val dbHome = File(tempFolder, "db-copilot-home").apply { mkdirs() }
         val copilotDir = File(dbHome, ".copilot").apply { mkdirs() }
         val dbFile = File(copilotDir, "session-store.db")
         val pyExit = ProcessBuilder(
@@ -343,7 +342,7 @@ class AgentSessionBrowserTest {
         assertEquals(0, pyExit)
 
         val dbResult = runSessionsCommand(AgentSessionBrowser.LIST_COPILOT_SESSIONS_COMMAND, dbHome.absolutePath)
-        assertTrue("Expected Success but got $dbResult", dbResult is AgentSessionListingResult.Success)
+        assertTrue(dbResult is AgentSessionListingResult.Success, "Expected Success but got $dbResult")
         val dbSessions = (dbResult as AgentSessionListingResult.Success).sessions
         assertEquals(listOf("cop-1", "cop-2"), dbSessions.map { it.id })
         assertEquals("Review Agent Skills", dbSessions[0].title)

@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.rememberNavController
 import com.termux.agent.infrastructure.ssh.AppThemeMode
 import com.termux.agent.infrastructure.ssh.SshConfigStore
+import com.termux.agent.presentation.ui.theme.TermuxTheme
 
 @Composable
 fun AppRoot(modifier: Modifier = Modifier) {

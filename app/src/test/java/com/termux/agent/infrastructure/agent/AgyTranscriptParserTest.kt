@@ -1,19 +1,18 @@
 package com.termux.agent.infrastructure.agent
 
 import com.termux.agent.HostTestSupport
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
 class AgyTranscriptParserTest {
 
-    @get:Rule
-    val tempFolder = TemporaryFolder()
+    @TempDir
+    lateinit var tempFolder: File
 
     @Test
     fun testParseUserInputLineExtractsUserRequest() {
@@ -57,9 +56,9 @@ class AgyTranscriptParserTest {
     fun testReadTranscriptByIdCommandReadsOnlyRequestedIdAndRejectsTraversal() {
         HostTestSupport.assumeShellContract(
             AgyTranscriptParser.READ_TRANSCRIPT_BY_ID_COMMAND,
-            tempFolder.root
+            tempFolder
         )
-        val fakeHome = tempFolder.newFolder("home")
+        val fakeHome = File(tempFolder, "home").apply { mkdirs() }
         val targetFile = File(fakeHome, ".gemini/antigravity-cli/brain/sess-1/.system_generated/logs/transcript.jsonl")
         val otherFile = File(fakeHome, ".gemini/antigravity-cli/brain/sess-2/.system_generated/logs/transcript.jsonl")
         targetFile.parentFile?.mkdirs()

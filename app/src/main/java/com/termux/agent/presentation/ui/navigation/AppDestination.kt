@@ -1,4 +1,4 @@
-package com.termux.agent.presentation
+package com.termux.agent.presentation.ui.navigation
 
 enum class AppDestination(val route: String) {
     MAIN("main"),

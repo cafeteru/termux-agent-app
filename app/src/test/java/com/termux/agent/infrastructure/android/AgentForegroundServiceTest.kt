@@ -1,16 +1,14 @@
-package com.termux.agent
+package com.termux.agent.infrastructure.android
 
-import com.termux.agent.infrastructure.android.AgentForegroundService
-import com.termux.agent.infrastructure.ssh.*
 import android.app.Application
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
-import androidx.core.app.NotificationCompat
 import androidx.test.core.app.ApplicationProvider
 import com.termux.agent.application.port.AgentAdapter
 import com.termux.agent.domain.model.AdapterEvent
 import com.termux.agent.domain.model.AgentState
+import com.termux.agent.infrastructure.ssh.SshSessionManager
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -36,7 +34,8 @@ class AgentForegroundServiceTest {
     @Before
     fun setUp() {
         app = ApplicationProvider.getApplicationContext()
-        notificationManager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager =
+            app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         SshSessionManager.disconnect()
     }
 
@@ -50,8 +49,10 @@ class AgentForegroundServiceTest {
         val serviceController = Robolectric.buildService(AgentForegroundService::class.java)
         serviceController.create()
 
-        val sessionChannel = notificationManager.getNotificationChannel(AgentForegroundService.CHANNEL_ID)
-        val alertsChannel = notificationManager.getNotificationChannel(AgentForegroundService.CHANNEL_ALERTS_ID)
+        val sessionChannel =
+            notificationManager.getNotificationChannel(AgentForegroundService.CHANNEL_ID)
+        val alertsChannel =
+            notificationManager.getNotificationChannel(AgentForegroundService.CHANNEL_ALERTS_ID)
 
         assertNotNull("Session channel should exist", sessionChannel)
         assertEquals(NotificationManager.IMPORTANCE_LOW, sessionChannel.importance)
@@ -80,11 +81,18 @@ class AgentForegroundServiceTest {
             override var currentState: AgentState = AgentState.WAITING_PERMISSION
 
             override fun launchCommand(workspacePath: String): String = "test"
-            override fun onScreenUpdated(screenLines: List<String>, idleMs: Long): AdapterEvent? = null
+            override fun onScreenUpdated(screenLines: List<String>, idleMs: Long): AdapterEvent? =
+                null
+
             override fun sendPrompt(ptyOutput: OutputStream, text: String) {}
-            override fun resolvePermission(ptyOutput: OutputStream, allow: Boolean, optionIndex: Int?) {
+            override fun resolvePermission(
+                ptyOutput: OutputStream,
+                allow: Boolean,
+                optionIndex: Int?
+            ) {
                 currentState = AgentState.WORKING
             }
+
             override fun reset() {
                 currentState = AgentState.IDLE
             }
@@ -98,11 +106,14 @@ class AgentForegroundServiceTest {
         )
         SshSessionManager.emitAdapterEventForTesting(permissionEvent)
 
-        val notification = shadowManager.getNotification(AgentForegroundService.NOTIFICATION_ID_PERMISSION)
+        val notification =
+            shadowManager.getNotification(AgentForegroundService.NOTIFICATION_ID_PERMISSION)
         assertNotNull("Permission notification should be posted", notification)
 
-        val title = notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString()
-        val text = notification.extras.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString()
+        val title =
+            notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString()
+        val text =
+            notification.extras.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString()
 
         assertTrue("Title should mention agent name", title?.contains("Test Agent") == true)
         assertTrue("Text should contain command", text?.contains("rm -rf /tmp/test") == true)
@@ -127,16 +138,23 @@ class AgentForegroundServiceTest {
 
         val shadowManager = Shadows.shadowOf(notificationManager)
 
-        val turnCompletedEvent = AdapterEvent.TurnCompleted(summary = "Build succeeded with 0 errors.")
+        val turnCompletedEvent =
+            AdapterEvent.TurnCompleted(summary = "Build succeeded with 0 errors.")
         SshSessionManager.emitAdapterEventForTesting(turnCompletedEvent)
 
-        val notification = shadowManager.getNotification(AgentForegroundService.NOTIFICATION_ID_COMPLETED)
+        val notification =
+            shadowManager.getNotification(AgentForegroundService.NOTIFICATION_ID_COMPLETED)
         assertNotNull("Completion notification should be posted", notification)
 
-        val title = notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString()
-        val text = notification.extras.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString()
+        val title =
+            notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString()
+        val text =
+            notification.extras.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString()
 
-        assertTrue("Title should mention task completion", title?.contains("Tarea completada") == true)
+        assertTrue(
+            "Title should mention task completion",
+            title?.contains("Tarea completada") == true
+        )
         assertTrue("Text should contain summary", text?.contains("Build succeeded") == true)
 
         serviceController.destroy()
@@ -159,11 +177,18 @@ class AgentForegroundServiceTest {
             override val name: String = "Mock Agent"
             override var currentState: AgentState = AgentState.WAITING_PERMISSION
             override fun launchCommand(workspacePath: String): String = "mock"
-            override fun onScreenUpdated(screenLines: List<String>, idleMs: Long): AdapterEvent? = null
+            override fun onScreenUpdated(screenLines: List<String>, idleMs: Long): AdapterEvent? =
+                null
+
             override fun sendPrompt(ptyOutput: OutputStream, text: String) {}
-            override fun resolvePermission(ptyOutput: OutputStream, allow: Boolean, optionIndex: Int?) {
+            override fun resolvePermission(
+                ptyOutput: OutputStream,
+                allow: Boolean,
+                optionIndex: Int?
+            ) {
                 currentState = AgentState.WORKING
             }
+
             override fun reset() {
                 currentState = AgentState.IDLE
             }

@@ -1,4 +1,4 @@
-package com.termux.agent.presentation
+package com.termux.agent.presentation.ui.theme
 
 import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme

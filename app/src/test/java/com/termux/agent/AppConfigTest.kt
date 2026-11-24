@@ -1,8 +1,8 @@
 package com.termux.agent
 
 import com.termux.agent.application.config.AppConfig
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Test
 
 class AppConfigTest {
     @Test
