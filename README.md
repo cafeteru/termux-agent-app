@@ -23,6 +23,13 @@ layer does not branch on agent IDs.
 - Native Chat view with Markdown, tool-call details, and permission cards.
 - Native Terminal view for direct commands and raw keys such as `Ctrl`, `Alt`,
   `Tab`, arrows, and `Esc`.
+- Dynamic PTY dimensions from the rendered terminal size and the Android IME,
+  plus Termux-style sticky `Ctrl`/`Alt`, extra keys, and direct terminal focus.
+- Compact navigation drawer with segmented agent selection, workspace/session
+  history, route to SSH configuration, and a pinned configuration action.
+- Modern GitHub/Termux dark theme with persistent light/dark selection.
+- SSH configuration with segmented password/public-key authentication, bounded
+  public-key content, contextual connection status, and action footer.
 - Session management grouped by workspace, including new sessions and
   resuming saved `agy` or `copilot` conversations.
 - Chat restoration from each CLI's local transcript or session store.
@@ -148,6 +155,14 @@ Adapter-specific launch and resume behavior:
 Session listing, transcript reads, and workspace browsing use short-lived SSH
 `exec` channels. The interactive agent itself uses one persistent PTY shell.
 
+The Compose Terminal tab calculates PTY columns and rows from the monospaced
+character size and the rendered terminal surface, including the visible IME
+area. JSch receives `setPtySize` updates when the layout or keyboard changes.
+The ANSI parser filters unsupported OSC/CSI sequences and keeps terminal text
+strictly monospaced. The SSH configuration and navigation drawer are split into
+focused Compose components, with `MainActivity` limited to edge-to-edge setup
+and the application root.
+
 ## Project Layout
 
 ```text
@@ -161,7 +176,15 @@ app/src/main/java/com/termux/agent/
 │   ├── ssh/                  SSH PTY, sessions, and workspace discovery
 │   ├── terminal/             ANSI-aware terminal rendering
 │   └── android/              Foreground service and notifications
-└── presentation/             Jetpack Compose UI and Android entry point
+└── presentation/
+    ├── ui/navigation/        AppDestination and Compose NavHost routes
+    ├── ui/theme/             GitHub/Termux dark and light color schemes
+    ├── ui/screens/main/     Main shell, drawer, tabs, and SSH screen state
+    ├── ChatScreen.kt         Chat UI and quick prompts
+    ├── TerminalScreen.kt     PTY canvas, IME input, and extra keys
+    ├── SshConfigScreen.kt    SSH authentication and connection actions
+    ├── DrawerOptionCard.kt   Reusable compact drawer card
+    └── AgentIcons.kt         Shared Antigravity/Copilot icons
 ```
 
 Dependency direction is `presentation -> application/infrastructure -> domain`.
@@ -220,6 +243,8 @@ The test suite covers:
 - SSH integration with a local test server.
 - Jetpack Compose UI and notification behavior with Robolectric.
 - End-to-end connection, Chat, and Terminal workflows.
+- Navigation drawer, SSH configuration, segmented agent selection, terminal
+  extra keys, sticky modifiers, and unsupported ANSI sequence cleanup.
 
 Run the fast unit tests with:
 

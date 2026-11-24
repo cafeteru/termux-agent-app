@@ -1,25 +1,41 @@
 package com.termux.agent.presentation
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedIconButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
@@ -35,8 +51,10 @@ import androidx.compose.ui.unit.dp
 import com.termux.agent.infrastructure.ssh.AuthMethod
 import com.termux.agent.infrastructure.ssh.SshConfig
 import com.termux.agent.infrastructure.ssh.ConnectionState
+import com.termux.agent.infrastructure.ssh.AppThemeMode
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 internal fun SshConfigMenuCard(
     config: SshConfig,
     portText: String,
@@ -69,22 +87,22 @@ internal fun SshConfigMenuCard(
                 style = MaterialTheme.typography.titleMedium
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = config.authMethod == AuthMethod.PASSWORD,
-                    onClick = { onSelectAuthMethod(AuthMethod.PASSWORD) },
-                    label = { Text("Contraseña (passwd)") },
-                    modifier = Modifier.weight(1f)
-                )
-                FilterChip(
-                    selected = config.authMethod == AuthMethod.PUBLIC_KEY,
-                    onClick = { onSelectAuthMethod(AuthMethod.PUBLIC_KEY) },
-                    label = { Text("Clave SSH (key)") },
-                    modifier = Modifier.weight(1f)
-                )
+            val authMethods = listOf(AuthMethod.PASSWORD, AuthMethod.PUBLIC_KEY)
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                authMethods.forEachIndexed { index, method ->
+                    SegmentedButton(
+                        selected = config.authMethod == method,
+                        onClick = { onSelectAuthMethod(method) },
+                        shape = SegmentedButtonDefaults.itemShape(index, authMethods.size),
+                        icon = {},
+                        label = {
+                            Text(
+                                if (method == AuthMethod.PASSWORD) "Contraseña" else "Clave SSH"
+                            )
+                        },
+                        modifier = Modifier
+                    )
+                }
             }
 
             Row(
@@ -123,6 +141,159 @@ internal fun SshConfigMenuCard(
                     onCopyPublicKey = onCopyPublicKey,
                     onRegenerateKey = onRegenerateKey
                 )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun SshConfigScreenContent(
+    config: SshConfig,
+    portText: String,
+    passwordVisible: Boolean,
+    feedbackMessage: String?,
+    validationError: String?,
+    sessionState: ConnectionState,
+    themeMode: AppThemeMode,
+    onThemeModeChange: (AppThemeMode) -> Unit,
+    onSelectAuthMethod: (AuthMethod) -> Unit,
+    onUsernameChange: (String) -> Unit,
+    onPortChange: (String) -> Unit,
+    onPasswordChange: (String) -> Unit,
+    onTogglePasswordVisibility: () -> Unit,
+    onCopySetupCommand: () -> Unit,
+    onCopyPublicKey: () -> Unit,
+    onRegenerateKey: () -> Unit,
+    onSaveAndConnect: () -> Unit,
+    onDisconnect: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .imePadding()
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "Target: ${config.host}:${portText.ifBlank { config.port.toString() }}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            androidx.compose.material3.HorizontalDivider()
+
+            SshConfigMenuCard(
+                config = config,
+                portText = portText,
+                passwordVisible = passwordVisible,
+                feedbackMessage = feedbackMessage,
+                onSelectAuthMethod = onSelectAuthMethod,
+                onUsernameChange = onUsernameChange,
+                onPortChange = onPortChange,
+                onPasswordChange = onPasswordChange,
+                onTogglePasswordVisibility = onTogglePasswordVisibility,
+                onCopySetupCommand = onCopySetupCommand,
+                onCopyPublicKey = onCopyPublicKey,
+                onRegenerateKey = onRegenerateKey,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            validationError?.let { error ->
+                SelectionContainer {
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+                    )
+                }
+            }
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            tonalElevation = 3.dp,
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    val statusText = when (sessionState) {
+                        ConnectionState.Checking -> "Conectando"
+                        is ConnectionState.Connected -> "Conectado"
+                        is ConnectionState.Error -> "Error SSH"
+                        ConnectionState.Disconnected -> "Inactivo"
+                    }
+                    val statusColor = when (sessionState) {
+                        ConnectionState.Checking -> MaterialTheme.colorScheme.tertiary
+                        is ConnectionState.Connected -> MaterialTheme.colorScheme.primary
+                        is ConnectionState.Error -> MaterialTheme.colorScheme.error
+                        ConnectionState.Disconnected -> MaterialTheme.colorScheme.outline
+                    }
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = statusColor.copy(alpha = 0.14f)
+                    ) {
+                        Text(
+                            text = statusText,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = statusColor,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = if (themeMode == AppThemeMode.DARK) "Oscuro" else "Claro",
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                        Switch(
+                            checked = themeMode == AppThemeMode.DARK,
+                            onCheckedChange = { checked ->
+                                onThemeModeChange(
+                                    if (checked) AppThemeMode.DARK else AppThemeMode.LIGHT
+                                )
+                            }
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (sessionState !is ConnectionState.Disconnected) {
+                        OutlinedButton(
+                            onClick = onDisconnect,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Desconectar")
+                        }
+                    }
+                    Button(
+                        onClick = onSaveAndConnect,
+                        enabled = sessionState !is ConnectionState.Checking,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Guardar y Conectar")
+                    }
+                }
             }
         }
     }
@@ -182,16 +353,25 @@ private fun PublicKeyAuthSection(
         style = MaterialTheme.typography.labelMedium
     )
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 130.dp),
         shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.surface
     ) {
-        SelectionContainer {
-            Text(
-                text = publicKey,
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                modifier = Modifier.padding(10.dp)
-            )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 130.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            SelectionContainer {
+                Text(
+                    text = publicKey,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
         }
     }
     Button(
@@ -208,13 +388,17 @@ private fun PublicKeyAuthSection(
             onClick = onCopyPublicKey,
             modifier = Modifier.weight(1f)
         ) {
-            Text(text = "Copiar clave")
+            Icon(Icons.Default.Check, contentDescription = null)
+            Text(" Copiar")
         }
         OutlinedButton(
             onClick = onRegenerateKey,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier
+                .weight(1f)
+                .testTag("ssh_regenerate_key")
         ) {
-            Text(text = "Regenerar clave")
+            Icon(Icons.Default.Refresh, contentDescription = null)
+            Text(" Regenerar")
         }
     }
     if (feedbackMessage != null) {

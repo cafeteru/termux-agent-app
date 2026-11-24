@@ -25,6 +25,9 @@ Keep package dependencies directed inward:
 - `infrastructure` implements ports for agents, SSH, terminal, and Android.
 - `presentation` renders UI and coordinates calls into application/infrastructure facades.
 - Agent-specific `agy`/`copilot` branches belong inside concrete infrastructure strategies, not in UI or SSH orchestration.
+- Keep presentation responsibilities separated: `MainActivity` initializes the app shell, `ui/navigation/` owns routes, `ui/theme/` owns palettes, and `ui/screens/` owns top-level screens.
+- Reusable Compose components belong in presentation components (`AgentIcons`, `DrawerOptionCard`, `SshConfigScreen`, and related files), not in `MainActivity` or `StatusScreen`.
+- Terminal UI must remain directly focusable, keep a 36 dp extra-key row, preserve sticky Ctrl/Alt behavior, and send PTY resize updates when layout or IME changes.
 
 For the current contract and agent-specific behavior, use:
 
@@ -66,6 +69,7 @@ The repository hooks in `.agents/hooks.json` enforce the pull-request and merge 
 - Run the narrowest relevant tests before expanding to the full suite.
 - Keep unit tests platform-neutral. Tests for Termux shell commands must detect the required runtime capability and skip with a clear reason when unavailable; do not assert host-specific `sh`, Python, path, or symlink behavior.
 - For Android features or fixes, follow the Termux build and on-device verification steps in [docs/termux-development.md](docs/termux-development.md).
+- For Compose changes, update focused UI tests for moved controls and verify narrow-screen, IME, dark-theme, drawer, and terminal states.
 - Keep `versionName = "0.0.1"` and `versionCode = 1` until the initial functional MVP is ready.
 
 ## Specialized Agent Team

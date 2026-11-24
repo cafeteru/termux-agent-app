@@ -1,20 +1,21 @@
 package com.termux.agent.presentation
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -48,6 +49,8 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
@@ -57,326 +60,273 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.termux.agent.infrastructure.ssh.SshSessionManager
 import com.termux.agent.infrastructure.terminal.AnsiTextParser
+import kotlin.math.max
+
+private data class PtyDimensions(
+    val cols: Int,
+    val rows: Int,
+    val pixelWidth: Int,
+    val pixelHeight: Int
+)
 
 @Composable
 internal fun PtyTerminalCard(
     ptyOutput: String,
     currentCommandLine: String = "",
     onSendRaw: (String) -> Unit,
+    onTerminalResize: (cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var interactiveValue by remember { mutableStateOf(TextFieldValue("")) }
-    val interactiveFocusRequester = remember { FocusRequester() }
-    var isInteractiveFocused by remember { mutableStateOf(false) }
-
+    var inputValue by remember { mutableStateOf(TextFieldValue("")) }
     var ctrlArmed by rememberSaveable { mutableStateOf(false) }
     var altArmed by rememberSaveable { mutableStateOf(false) }
+    val inputFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val density = LocalDensity.current
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    val textMeasurer = rememberTextMeasurer()
+    val charSize = remember(textMeasurer) {
+        textMeasurer.measure(
+            text = "M",
+            style = TextStyle(
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp,
+                letterSpacing = 0.sp
+            )
+        ).size
+    }
+    var terminalSize by remember { mutableStateOf(IntSize.Zero) }
+    var lastResize by remember { mutableStateOf<PtyDimensions?>(null) }
     val outputScrollState = rememberScrollState()
     val styledOutput = remember(ptyOutput) { AnsiTextParser.parse(ptyOutput) }
-    val keyboardController = LocalSoftwareKeyboardController.current
-    val terminalInteractionSource = remember { MutableInteractionSource() }
-
-    val focusInteractiveField = {
-        runCatching { interactiveFocusRequester.requestFocus() }
-        keyboardController?.show()
-        isInteractiveFocused = true
-        Unit
-    }
 
     LaunchedEffect(ptyOutput, outputScrollState.maxValue) {
         outputScrollState.scrollTo(outputScrollState.maxValue)
     }
 
     LaunchedEffect(Unit) {
-        focusInteractiveField()
+        runCatching { inputFocusRequester.requestFocus() }
+        keyboardController?.show()
     }
 
     LaunchedEffect(currentCommandLine) {
-        if (currentCommandLine != interactiveValue.text) {
-            interactiveValue = TextFieldValue(
+        if (currentCommandLine.isNotEmpty() && currentCommandLine != inputValue.text) {
+            inputValue = TextFieldValue(
                 text = currentCommandLine,
                 selection = TextRange(currentCommandLine.length)
             )
         }
     }
 
-    Column(modifier = modifier) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Modo interactivo (en vivo)",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+    LaunchedEffect(terminalSize, imeBottom, charSize) {
+        if (terminalSize == IntSize.Zero) return@LaunchedEffect
+        val usableHeight = max(1, terminalSize.height - imeBottom)
+        val charWidth = max(1, charSize.width)
+        val charHeight = max(1, charSize.height)
+        val cols = max(20, terminalSize.width / charWidth)
+        val rows = max(5, usableHeight / charHeight)
+        val dimensions = PtyDimensions(cols, rows, terminalSize.width, usableHeight)
+        if (dimensions != lastResize) {
+            lastResize = dimensions
+            onTerminalResize(cols, rows, terminalSize.width, usableHeight)
         }
+    }
 
+    fun sendWithModifiers(text: String) {
+        onSendRaw(SshSessionManager.applyModifiers(text, ctrl = ctrlArmed, alt = altArmed))
+        ctrlArmed = false
+        altArmed = false
+    }
+
+    fun focusTerminal() {
+        runCatching { inputFocusRequester.requestFocus() }
+        keyboardController?.show()
+    }
+
+    Column(modifier = modifier.imePadding()) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .clickable(
-                    interactionSource = terminalInteractionSource,
-                    indication = null,
-                    onClick = focusInteractiveField
-                ),
+                .onSizeChanged { terminalSize = it },
             shape = MaterialTheme.shapes.small,
-            color = Color(0xFF121212)
+            color = Color(0xFF0D1117)
         ) {
-            SelectionContainer(modifier = Modifier.fillMaxSize()) {
-                Text(
-                    text = if (styledOutput.isEmpty()) {
-                        AnnotatedString("(esperando salida de Termux...)")
-                    } else {
-                        styledOutput
+            Box(modifier = Modifier.fillMaxSize()) {
+                SelectionContainer(modifier = Modifier.fillMaxSize()) {
+                    Text(
+                        text = if (styledOutput.isEmpty()) {
+                            AnnotatedString("")
+                        } else {
+                            styledOutput
+                        },
+                        color = Color(0xFFE6EDF3),
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp,
+                            letterSpacing = 0.sp
+                        ),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(outputScrollState)
+                            .padding(8.dp)
+                            .testTag("terminal_canvas")
+                    )
+                }
+
+                BasicTextField(
+                    value = inputValue,
+                    onValueChange = { updated ->
+                        val oldText = inputValue.text
+                        val newText = updated.text
+                        if (newText.length > oldText.length) {
+                            val added = newText.substring(oldText.length)
+                            val newlineIndex = added.indexOfFirst { it == '\n' || it == '\r' }
+                            val printable = if (newlineIndex >= 0) {
+                                added.substring(0, newlineIndex)
+                            } else {
+                                added
+                            }
+                            if (printable.isNotEmpty()) sendWithModifiers(printable)
+                            if (newlineIndex >= 0) onSendRaw("\r")
+                            inputValue = TextFieldValue("")
+                        } else if (newText.length < oldText.length) {
+                            repeat(oldText.length - newText.length) {
+                                sendWithModifiers("\u007F")
+                            }
+                            inputValue = TextFieldValue("")
+                        } else {
+                            inputValue = updated
+                        }
                     },
-                    color = Color(0xFFE0E0E0),
-                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(outputScrollState)
-                        .clickable(
-                            interactionSource = terminalInteractionSource,
-                            indication = null,
-                            onClick = focusInteractiveField
-                        )
-                        .padding(10.dp)
+                        .testTag("interactive_terminal_input")
+                        .focusRequester(inputFocusRequester)
+                        .onPreviewKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (event.key) {
+                                Key.Enter, Key.NumPadEnter -> {
+                                    onSendRaw("\r")
+                                    inputValue = TextFieldValue("")
+                                    ctrlArmed = false
+                                    altArmed = false
+                                    true
+                                }
+                                Key.Tab -> {
+                                    sendWithModifiers("\t")
+                                    true
+                                }
+                                Key.DirectionUp -> {
+                                    sendWithModifiers("\u001B[A")
+                                    true
+                                }
+                                Key.DirectionDown -> {
+                                    sendWithModifiers("\u001B[B")
+                                    true
+                                }
+                                Key.DirectionLeft -> {
+                                    sendWithModifiers("\u001B[D")
+                                    true
+                                }
+                                Key.DirectionRight -> {
+                                    sendWithModifiers("\u001B[C")
+                                    true
+                                }
+                                Key.Escape -> {
+                                    sendWithModifiers("\u001B")
+                                    true
+                                }
+                                Key.Backspace -> {
+                                    sendWithModifiers("\u007F")
+                                    true
+                                }
+                                else -> false
+                            }
+                        },
+                    textStyle = TextStyle(
+                        color = Color.Transparent,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        letterSpacing = 0.sp
+                    ),
+                    cursorBrush = SolidColor(Color.Transparent),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.None,
+                        autoCorrectEnabled = false,
+                        keyboardType = KeyboardType.Ascii,
+                        imeAction = ImeAction.None
+                    ),
+                    decorationBox = { it() }
                 )
             }
         }
+
         ExtraKeysRow(
             ctrlArmed = ctrlArmed,
             altArmed = altArmed,
             onToggleCtrl = {
                 ctrlArmed = !ctrlArmed
-                focusInteractiveField()
+                focusTerminal()
             },
             onToggleAlt = {
                 altArmed = !altArmed
-                focusInteractiveField()
+                focusTerminal()
             },
             onEsc = {
-                onSendRaw(SshSessionManager.applyModifiers("\u001B", ctrl = false, alt = altArmed))
-                ctrlArmed = false
-                altArmed = false
-                focusInteractiveField()
+                sendWithModifiers("\u001B")
+                focusTerminal()
             },
             onTab = {
-                onSendRaw("\t")
-                focusInteractiveField()
+                sendWithModifiers("\t")
+                focusTerminal()
             },
             onArrowLeft = {
-                onSendRaw(SshSessionManager.applyModifiers("\u001B[D", ctrl = false, alt = altArmed))
-                ctrlArmed = false
-                altArmed = false
-                focusInteractiveField()
+                sendWithModifiers("\u001B[D")
+                focusTerminal()
             },
             onArrowDown = {
-                interactiveValue = TextFieldValue("")
-                onSendRaw(SshSessionManager.applyModifiers("\u001B[B", ctrl = false, alt = altArmed))
-                ctrlArmed = false
-                altArmed = false
-                focusInteractiveField()
+                sendWithModifiers("\u001B[B")
+                focusTerminal()
             },
             onArrowUp = {
-                interactiveValue = TextFieldValue("")
-                onSendRaw(SshSessionManager.applyModifiers("\u001B[A", ctrl = false, alt = altArmed))
-                ctrlArmed = false
-                altArmed = false
-                focusInteractiveField()
+                sendWithModifiers("\u001B[A")
+                focusTerminal()
             },
             onArrowRight = {
-                onSendRaw(SshSessionManager.applyModifiers("\u001B[C", ctrl = false, alt = altArmed))
+                sendWithModifiers("\u001B[C")
+                focusTerminal()
+            },
+            onSlash = {
+                sendWithModifiers("/")
+                focusTerminal()
+            },
+            onHyphen = {
+                sendWithModifiers("-")
+                focusTerminal()
+            },
+            onTilde = {
+                sendWithModifiers("~")
+                focusTerminal()
+            },
+            onCtrlC = {
+                onSendRaw("\u0003")
                 ctrlArmed = false
                 altArmed = false
-                focusInteractiveField()
+                focusTerminal()
             },
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 6.dp)
+                .height(36.dp)
+                .padding(top = 2.dp)
         )
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 6.dp)
-                .clickable(onClick = focusInteractiveField),
-            shape = MaterialTheme.shapes.small,
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-        ) {
-            BasicTextField(
-                value = interactiveValue,
-                onValueChange = { updated ->
-                    val oldText = interactiveValue.text
-                    val newText = updated.text
-                    val editAtEnd = updated.selection.end == updated.text.length &&
-                        updated.selection.start == updated.selection.end
-                    if (!editAtEnd) {
-                        interactiveValue = TextFieldValue(
-                            text = oldText,
-                            selection = TextRange(oldText.length)
-                        )
-                        return@BasicTextField
-                    }
-                    if (newText.length > oldText.length) {
-                        val added = newText.substring(oldText.length)
-                        val newlineIndex = added.indexOfFirst { it == '\n' || it == '\r' }
-                        val rawText = if (newlineIndex >= 0) added.substring(0, newlineIndex) else added
-                        if (rawText.isNotEmpty()) {
-                            onSendRaw(
-                                SshSessionManager.applyModifiers(
-                                    rawText,
-                                    ctrl = ctrlArmed,
-                                    alt = altArmed
-                                )
-                            )
-                        }
-                        if (newlineIndex >= 0) onSendRaw("\r")
-                        ctrlArmed = false
-                        altArmed = false
-                    } else if (newText.length < oldText.length) {
-                        val deletedCount = oldText.length - newText.length
-                        repeat(deletedCount) {
-                            onSendRaw(
-                                SshSessionManager.applyModifiers(
-                                    "\u007F",
-                                    ctrl = ctrlArmed,
-                                    alt = altArmed
-                                )
-                            )
-                            ctrlArmed = false
-                            altArmed = false
-                        }
-                    }
-
-                    if (newText.contains('\n') || newText.contains('\r')) {
-                        interactiveValue = TextFieldValue("")
-                    } else {
-                        interactiveValue = updated
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("interactive_terminal_input")
-                    .focusRequester(interactiveFocusRequester)
-                    .onFocusChanged { isInteractiveFocused = it.isFocused }
-                    .onPreviewKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyDown) {
-                            when (event.key) {
-                                Key.Enter, Key.NumPadEnter -> {
-                                    onSendRaw("\r")
-                                    interactiveValue = TextFieldValue("")
-                                    true
-                                }
-                                Key.Tab -> {
-                                    onSendRaw("\t")
-                                    true
-                                }
-                                Key.DirectionUp -> {
-                                    interactiveValue = TextFieldValue("")
-                                    onSendRaw(SshSessionManager.applyModifiers("\u001B[A", ctrl = false, alt = altArmed))
-                                    ctrlArmed = false
-                                    altArmed = false
-                                    true
-                                }
-                                Key.DirectionDown -> {
-                                    interactiveValue = TextFieldValue("")
-                                    onSendRaw(SshSessionManager.applyModifiers("\u001B[B", ctrl = false, alt = altArmed))
-                                    ctrlArmed = false
-                                    altArmed = false
-                                    true
-                                }
-                                Key.DirectionLeft -> {
-                                    onSendRaw(SshSessionManager.applyModifiers("\u001B[D", ctrl = false, alt = altArmed))
-                                    ctrlArmed = false
-                                    altArmed = false
-                                    true
-                                }
-                                Key.DirectionRight -> {
-                                    onSendRaw(SshSessionManager.applyModifiers("\u001B[C", ctrl = false, alt = altArmed))
-                                    ctrlArmed = false
-                                    altArmed = false
-                                    true
-                                }
-                                Key.Escape -> {
-                                    onSendRaw(SshSessionManager.applyModifiers("\u001B", ctrl = false, alt = altArmed))
-                                    ctrlArmed = false
-                                    altArmed = false
-                                    true
-                                }
-                                Key.Backspace -> {
-                                    if (interactiveValue.text.isEmpty()) {
-                                        onSendRaw(
-                                            SshSessionManager.applyModifiers(
-                                                "\u007F",
-                                                ctrl = ctrlArmed,
-                                                alt = altArmed
-                                            )
-                                        )
-                                        ctrlArmed = false
-                                        altArmed = false
-                                        true
-                                    } else {
-                                        false
-                                    }
-                                }
-                                else -> false
-                            }
-                        } else {
-                            false
-                        }
-                    },
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.None,
-                    autoCorrectEnabled = false,
-                    keyboardType = KeyboardType.Ascii,
-                    imeAction = ImeAction.None
-                ),
-                keyboardActions = KeyboardActions(
-                    onAny = {
-                        onSendRaw("\r")
-                        interactiveValue = TextFieldValue("")
-                    }
-                ),
-                singleLine = true,
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                textStyle = MaterialTheme.typography.bodyMedium.copy(
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontFamily = FontFamily.Monospace
-                ),
-                decorationBox = { innerTextField ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = ">_",
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
-                        )
-                        Box(modifier = Modifier.weight(1f)) {
-                            if (interactiveValue.text.isEmpty()) {
-                                Text(
-                                    text = "Teclado directo (escribe en vivo a Termux)...",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                )
-                            }
-                            innerTextField()
-                        }
-                    }
-                }
-            )
-        }
     }
 }
 
@@ -392,57 +342,37 @@ internal fun ExtraKeysRow(
     onArrowDown: () -> Unit,
     onArrowUp: () -> Unit,
     onArrowRight: () -> Unit,
+    onSlash: () -> Unit,
+    onHyphen: () -> Unit,
+    onTilde: () -> Unit,
+    onCtrlC: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        ExtraKeyButton(onClick = onEsc, modifier = Modifier.weight(1f)) {
-            Text(text = "ESC", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-        }
-        ExtraKeyButton(onClick = onTab, modifier = Modifier.weight(1f)) {
-            Text(text = "TAB", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-        }
-        ExtraKeyButton(
-            active = ctrlArmed,
-            onClick = onToggleCtrl,
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(text = "CTRL", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-        }
-        ExtraKeyButton(
-            active = altArmed,
-            onClick = onToggleAlt,
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(text = "ALT", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-        }
+        ExtraKeyButton(onClick = onEsc, modifier = Modifier.weight(1f)) { Text("ESC", maxLines = 1) }
+        ExtraKeyButton(onClick = onTab, modifier = Modifier.weight(1f)) { Text("TAB", maxLines = 1) }
+        ExtraKeyButton(active = ctrlArmed, onClick = onToggleCtrl, modifier = Modifier.weight(1f)) { Text("CTRL", maxLines = 1) }
+        ExtraKeyButton(active = altArmed, onClick = onToggleAlt, modifier = Modifier.weight(1f)) { Text("ALT", maxLines = 1) }
         ExtraKeyButton(onClick = onArrowLeft, modifier = Modifier.weight(1f)) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                contentDescription = "Flecha izquierda"
-            )
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Flecha izquierda")
         }
         ExtraKeyButton(onClick = onArrowDown, modifier = Modifier.weight(1f)) {
-            Icon(
-                imageVector = Icons.Default.KeyboardArrowDown,
-                contentDescription = "Flecha abajo"
-            )
+            Icon(Icons.Default.KeyboardArrowDown, "Flecha abajo")
         }
         ExtraKeyButton(onClick = onArrowUp, modifier = Modifier.weight(1f)) {
-            Icon(
-                imageVector = Icons.Default.KeyboardArrowUp,
-                contentDescription = "Flecha arriba"
-            )
+            Icon(Icons.Default.KeyboardArrowUp, "Flecha arriba")
         }
         ExtraKeyButton(onClick = onArrowRight, modifier = Modifier.weight(1f)) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = "Flecha derecha"
-            )
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Flecha derecha")
         }
+        ExtraKeyButton(onClick = onSlash, modifier = Modifier.weight(1f)) { Text("/", maxLines = 1) }
+        ExtraKeyButton(onClick = onHyphen, modifier = Modifier.weight(1f)) { Text("-", maxLines = 1) }
+        ExtraKeyButton(onClick = onTilde, modifier = Modifier.weight(1f)) { Text("~", maxLines = 1) }
+        ExtraKeyButton(onClick = onCtrlC, modifier = Modifier.weight(1.2f)) { Text("C-c", maxLines = 1) }
     }
 }
 
@@ -455,7 +385,7 @@ private fun ExtraKeyButton(
 ) {
     FilledTonalButton(
         onClick = onClick,
-        modifier = modifier.height(36.dp),
+        modifier = modifier.height(34.dp),
         shape = MaterialTheme.shapes.extraSmall,
         contentPadding = PaddingValues(0.dp),
         colors = ButtonDefaults.filledTonalButtonColors(

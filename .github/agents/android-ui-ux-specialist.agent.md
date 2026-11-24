@@ -38,6 +38,8 @@ Improve `termux-agent-app` as a mobile tool, not as a desktop terminal squeezed 
 8. Make focused changes. No redesign driven only by aesthetics, no speculative animations, and no extra dependencies without a clear need.
 9. Add or update Compose/UI tests where a control moves, appears/disappears, or changes interaction semantics.
 10. Run `gradle testDebugAll assembleDebug --no-daemon` when the full change is ready, and copy the APK to `/sdcard/Download/termux-agent-0.0.1-debug.apk`.
+11. Prefer the current split presentation structure: `MainActivity` is app shell only, navigation lives in `ui/navigation/`, theme in `ui/theme/`, top-level screens in `ui/screens/`, and reusable cards/forms in focused presentation files.
+12. Preserve compact drawer behavior, segmented agent/authentication choices, terminal 36 dp extra keys, direct canvas focus, IME-aware PTY sizing, and persistent light/dark mode.
 
 ## Review Priority
 

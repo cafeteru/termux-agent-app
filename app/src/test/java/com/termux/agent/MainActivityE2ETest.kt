@@ -200,9 +200,6 @@ class MainActivityE2ETest {
                         .isNotEmpty()
                 }
 
-                // Direct mode is default
-                composeRule.onNodeWithText("Modo interactivo (en vivo)").assertIsDisplayed()
-
                 composeRule.onNodeWithTag("interactive_terminal_input").performTextInput("ls")
                 composeRule.onNodeWithText("TAB").performClick()
                 composeRule.onNodeWithContentDescription("Flecha arriba").performClick()
@@ -262,8 +259,6 @@ class MainActivityE2ETest {
                         .isNotEmpty()
                 }
 
-                composeRule.onNodeWithText("Modo interactivo (en vivo)").assertIsDisplayed()
-
                 composeRule.onNodeWithText("CTRL").performClick()
                 composeRule.onNodeWithTag("interactive_terminal_input").performTextInput("c")
 
@@ -294,7 +289,9 @@ class MainActivityE2ETest {
 
                 // Agent selector chips were moved from ChatScreen into the navigation drawer
                 composeRule.onNodeWithText("Antigravity (agy)").assertDoesNotExist()
-                composeRule.onNodeWithText("Google Antigravity CLI").assertIsDisplayed()
+                composeRule.onNodeWithTag("main_screen_title")
+                    .assertIsDisplayed()
+                    .assertTextEquals("Termux Agent")
 
                 // Switch to Copilot via the navigation drawer
                 composeRule.onNodeWithContentDescription("Abrir menú").performClick()
@@ -307,7 +304,9 @@ class MainActivityE2ETest {
                 composeRule.waitForIdle()
 
                 assertEquals("copilot", SshSessionManager.activeAdapter.value.id)
-                composeRule.onNodeWithText("GitHub Copilot CLI").assertIsDisplayed()
+                composeRule.onNodeWithTag("main_screen_title")
+                    .assertIsDisplayed()
+                    .assertTextEquals("Termux Agent")
 
                 // Draft text survives switching between Chat and Terminal
                 composeRule.onNodeWithTag("chat_input_field").performTextInput("Draft message")
@@ -339,7 +338,9 @@ class MainActivityE2ETest {
                 val connectState = connectTestServer(server.port)
                 assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
 
-                composeRule.onNodeWithText("Google Antigravity CLI").assertIsDisplayed()
+                composeRule.onNodeWithTag("main_screen_title")
+                    .assertIsDisplayed()
+                    .assertTextEquals("Termux Agent")
                 composeRule.onNodeWithTag("chat_input_field").performTextInput("check git")
                 composeRule.onNodeWithTag("chat_send_button").performClick()
 
@@ -445,7 +446,8 @@ class MainActivityE2ETest {
                 val connectState = connectTestServer(server.port)
                 assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
 
-                composeRule.onNodeWithTag("workspace_selector_bar").performClick()
+                composeRule.onNodeWithContentDescription("Acciones del agente").performClick()
+                composeRule.onNodeWithText("Seleccionar proyecto").performClick()
                 composeRule.onNodeWithTag("workspace_picker_title")
                     .assertIsDisplayed()
                     .assertTextEquals("Seleccionar proyecto")
@@ -475,9 +477,6 @@ class MainActivityE2ETest {
                         .isEmpty()
                 }
 
-                composeRule.onNodeWithTag("workspace_selector_bar")
-                    .assertIsDisplayed()
-                    .assertTextContains("termux-agent-app", substring = true)
                 assertEquals("/home/termux/termux-agent-app", SshConfigStore.loadWorkspacePath(app))
 
                 composeRule.onNodeWithContentDescription("Acciones del agente").performClick()
@@ -603,23 +602,7 @@ class MainActivityE2ETest {
                 composeRule.waitForIdle()
                 composeRule.onNodeWithTag("drawer_workspace_header_/home/termux/notes").assertIsDisplayed()
 
-                // Tap "+" on notes directory -> switches workspace to /home/termux/notes and starts clean agy session
-                composeRule.onNodeWithTag("drawer_workspace_new_session_/home/termux/notes")
-                    .performSemanticsAction(SemanticsActions.OnClick)
-                composeRule.waitUntil(timeoutMillis = 5_000) {
-                    SshSessionManager.activeConversationId.value == null &&
-                        SshSessionManager.chatMessages.value.isEmpty() &&
-                        server.receivedCommands.contains("cd \"/home/termux/notes\" && agy")
-                }
-                assertEquals("/home/termux/notes", SshConfigStore.loadWorkspacePath(app))
-                composeRule.onNodeWithTag("agent_session_bar")
-                    .assertTextContains("Nueva conversación", substring = true)
 
-                // Quick-access "+" icon on ChatScreen also starts a clean session
-                composeRule.onNodeWithTag("chat_new_session_button").performClick()
-                composeRule.waitUntil(timeoutMillis = 5_000) {
-                    server.shellSessionCount.get() >= 3
-                }
             }
         }
     }
@@ -666,7 +649,6 @@ class MainActivityE2ETest {
                 composeRule.onNodeWithTag("drawer_option_copilot").performSemanticsAction(SemanticsActions.OnClick)
                 composeRule.waitForIdle()
 
-                composeRule.onNodeWithText("GitHub Copilot CLI").assertIsDisplayed()
                 composeRule.onNodeWithTag("agent_session_bar")
                     .assertIsDisplayed()
                     .assertTextContains("Nueva conversación", substring = true)
@@ -699,17 +681,13 @@ class MainActivityE2ETest {
                     server.receivedCommands.contains("cd \"/home/termux/termux-agent-app\" && copilot --resume=cop-1")
                 }
 
-                // Tap "+" on notes directory -> switches workspace and launches fresh copilot
-                composeRule.onNodeWithTag("agent_session_bar").performClick()
-                composeRule.waitForIdle()
-                composeRule.onNodeWithTag("drawer_workspace_new_session_/home/termux/notes")
-                    .performSemanticsAction(SemanticsActions.OnClick)
+                // The global action starts a fresh Copilot conversation in the selected workspace
+                composeRule.onNodeWithTag("drawer_new_session_button").performSemanticsAction(SemanticsActions.OnClick)
                 composeRule.waitUntil(timeoutMillis = 5_000) {
                     SshSessionManager.activeConversationId.value == null &&
                         SshSessionManager.chatMessages.value.isEmpty() &&
-                        server.receivedCommands.contains("cd \"/home/termux/notes\" && copilot")
+                        server.receivedCommands.contains("cd \"/home/termux/termux-agent-app\" && copilot")
                 }
-                assertEquals("/home/termux/notes", SshConfigStore.loadWorkspacePath(app))
             }
         }
     }
@@ -732,7 +710,7 @@ class MainActivityE2ETest {
             val copilotTop = composeRule.onNodeWithTag("drawer_option_copilot").getUnclippedBoundsInRoot().top
             val dividerTop = composeRule.onNodeWithTag("drawer_options_divider").getUnclippedBoundsInRoot().top
             val configTop = composeRule.onNodeWithTag("drawer_option_config").getUnclippedBoundsInRoot().top
-            assertTrue(antigravityTop < copilotTop)
+            assertTrue(kotlin.math.abs((antigravityTop - copilotTop).value) < 0.5f)
             assertTrue(copilotTop < dividerTop)
             assertTrue(dividerTop < configTop)
 
@@ -791,15 +769,15 @@ class MainActivityE2ETest {
 
             composeRule.onNodeWithText("Puerto").performScrollTo().performTextClearance()
             composeRule.onNodeWithText("Puerto").performTextInput("0")
-            composeRule.onNodeWithText("Guardar y Conectar").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+            composeRule.onNodeWithText("Guardar y Conectar").performSemanticsAction(SemanticsActions.OnClick)
             composeRule.onNodeWithText(
                 "Puerto SSH inválido. Introduce un valor entre 1 y 65535."
             ).performScrollTo().assertIsDisplayed()
 
             composeRule.onNodeWithText("Puerto").performScrollTo().performTextClearance()
             composeRule.onNodeWithText("Puerto").performTextInput("8022")
-            composeRule.onNodeWithText("Clave SSH (key)").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
-            composeRule.onNodeWithText("Regenerar clave").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+            composeRule.onNodeWithText("Clave SSH").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+            composeRule.onNodeWithTag("ssh_regenerate_key").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
             composeRule.onNodeWithText(
                 "Nueva clave SSH generada. Copia el comando en Termux."
             ).performScrollTo().assertIsDisplayed()

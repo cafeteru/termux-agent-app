@@ -12,6 +12,11 @@ enum class AuthMethod {
     PUBLIC_KEY
 }
 
+enum class AppThemeMode {
+    LIGHT,
+    DARK
+}
+
 data class SshConfig(
     val host: String = AppConfig.DEFAULT_SSH_HOST,
     val port: Int = AppConfig.DEFAULT_SSH_PORT,
@@ -61,6 +66,7 @@ object SshConfigStore {
     private const val KEY_PRIVATE_KEY_PEM = "private_key_pem"
     private const val KEY_PUBLIC_KEY_AUTHORIZED = "public_key_authorized"
     private const val KEY_WORKSPACE_PATH = "workspace_path"
+    private const val KEY_THEME_MODE = "theme_mode"
 
     /**
      * Loads persisted SSH settings, generating a key pair on first access if missing.
@@ -135,6 +141,20 @@ object SshConfigStore {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_WORKSPACE_PATH, workspacePath.trim())
+            .apply()
+    }
+
+    fun loadThemeMode(context: Context): AppThemeMode {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val saved = prefs.getString(KEY_THEME_MODE, null)
+        return runCatching { AppThemeMode.valueOf(saved.orEmpty()) }
+            .getOrDefault(AppThemeMode.DARK)
+    }
+
+    fun saveThemeMode(context: Context, themeMode: AppThemeMode) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_THEME_MODE, themeMode.name)
             .apply()
     }
 }

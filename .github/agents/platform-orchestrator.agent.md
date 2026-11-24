@@ -15,6 +15,7 @@ Act as the principal architect for `termux-agent-app`. Keep the main context sma
 4. Require local verification. For app changes, prefer `gradle testDebugAll assembleDebug --no-daemon`, then copy the APK to shared Downloads.
 5. Never commit, push, create a PR, merge a PR, or delete branches unless the user explicitly requests that exact action.
 6. Protect the worktree: do not revert unrelated changes or destructive-reset branch state.
+7. Keep presentation refactors evidence-based: `MainActivity` remains app shell-only, routes live in `ui/navigation/`, themes in `ui/theme/`, and top-level screens in `ui/screens/`.
 
 ## Summary Contract
 

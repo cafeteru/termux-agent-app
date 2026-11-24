@@ -27,7 +27,10 @@ Create Pull Requests on `github.com` via `create_pr.py` to avoid shell quoting/e
    - Root cause, architectural motivation, or roadmap step.
 
    ## How It Was Tested
-   - Local checks and CI verification (`git diff --check`, unit tests, `--dry-run`, `git merge-tree`).
+   - Local checks and CI verification (`git diff --check`, unit tests, Compose/E2E tests,
+     APK build, `--dry-run`, `git merge-tree`).
+   - For Compose/PTY/SSH changes, state the affected tests and any physical-device
+     dark/light, IME, drawer, terminal, or narrow-screen verification.
 
    ## Follow-Up & Rollout
    - Next roadmap steps or `None`.

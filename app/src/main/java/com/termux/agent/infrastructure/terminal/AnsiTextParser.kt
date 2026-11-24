@@ -14,7 +14,8 @@ object AnsiTextParser {
     private val OSC_REGEX = Regex("\u001B\\][^\u0007\u001B]*(?:\u0007|\u001B\\\\)")
     private val CHARSET_REGEX = Regex("\u001B[()][0-9A-Za-z]")
     private val CSI_REGEX = Regex("\u001B\\[([0-9;?]*)([A-Za-z])")
-    private val STRAY_ESC_REGEX = Regex("\u001B[=>]?|\u0007")
+    private val UNSUPPORTED_CSI_REGEX = Regex("\u001B\\[[0-9;]*(?:>|\\?|:)[-0-9;?:]*[A-Za-z]")
+    private val STRAY_ESC_REGEX = Regex("\u001B(?:\\[[^A-Za-z]*[A-Za-z])?|[\u0007]")
 
     private val ANSI_COLORS = listOf(
         Color(0xFF4E4E4E), // 0: black
@@ -67,6 +68,7 @@ object AnsiTextParser {
         val cleaned = raw
             .replace(OSC_REGEX, "")
             .replace(CHARSET_REGEX, "")
+            .replace(UNSUPPORTED_CSI_REGEX, "")
 
         return buildAnnotatedString {
             var style = SgrState()
