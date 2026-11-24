@@ -35,6 +35,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
@@ -392,7 +393,9 @@ private fun PublicKeyAuthSection(
         }
         OutlinedButton(
             onClick = onRegenerateKey,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier
+                .weight(1f)
+                .testTag("ssh_regenerate_key")
         ) {
             Icon(Icons.Default.Refresh, contentDescription = null)
             Text(" Regenerar")

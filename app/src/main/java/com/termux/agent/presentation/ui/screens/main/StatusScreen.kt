@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -51,6 +52,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
@@ -163,6 +166,7 @@ fun StatusScreen(
     val clipboard = LocalClipboardManager.current
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    var agentMenuExpanded by remember { mutableStateOf(false) }
 
     var config by remember { mutableStateOf(SshConfigStore.load(context)) }
     var portText by rememberSaveable { mutableStateOf(config.port.toString()) }
@@ -472,7 +476,12 @@ fun StatusScreen(
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp)
                                 )
-                                Column(modifier = Modifier.weight(1f)) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("agent_session_bar")
+                                        .clickable(onClick = { scope.launch { drawerState.open() } })
+                                ) {
                                     Text(
                                         text = activeConversationTitle?.takeIf { it.isNotBlank() }
                                             ?: "Nueva conversación",
@@ -499,6 +508,52 @@ fun StatusScreen(
                                         imageVector = ChatBubbleIcon,
                                         contentDescription = "Abrir sesiones"
                                     )
+                                }
+                                Box {
+                                    IconButton(
+                                        onClick = { agentMenuExpanded = true },
+                                        modifier = Modifier.size(48.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = "Acciones del agente"
+                                        )
+                                    }
+                                    DropdownMenu(
+                                        expanded = agentMenuExpanded,
+                                        onDismissRequest = { agentMenuExpanded = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Seleccionar proyecto") },
+                                            onClick = {
+                                                agentMenuExpanded = false
+                                                showWorkspacePicker = true
+                                            }
+                                        )
+                                        if (activeAdapter.supportsSessions) {
+                                            DropdownMenuItem(
+                                                text = { Text("Nueva conversación") },
+                                                onClick = {
+                                                    agentMenuExpanded = false
+                                                    SshSessionManager.startNewSessionAsync(selectedWorkspacePath)
+                                                }
+                                            )
+                                        }
+                                        DropdownMenuItem(
+                                            text = { Text("Iniciar agente") },
+                                            onClick = {
+                                                agentMenuExpanded = false
+                                                SshSessionManager.launchActiveAgentAsync(selectedWorkspacePath)
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Limpiar chat") },
+                                            onClick = {
+                                                agentMenuExpanded = false
+                                                SshSessionManager.clearChat()
+                                            }
+                                        )
+                                    }
                                 }
                             }
                             HorizontalDivider()

@@ -289,7 +289,9 @@ class MainActivityE2ETest {
 
                 // Agent selector chips were moved from ChatScreen into the navigation drawer
                 composeRule.onNodeWithText("Antigravity (agy)").assertDoesNotExist()
-                composeRule.onNodeWithText("Google Antigravity CLI").assertIsDisplayed()
+                composeRule.onNodeWithTag("main_screen_title")
+                    .assertIsDisplayed()
+                    .assertTextEquals("Termux Agent")
 
                 // Switch to Copilot via the navigation drawer
                 composeRule.onNodeWithContentDescription("Abrir menú").performClick()
@@ -302,7 +304,9 @@ class MainActivityE2ETest {
                 composeRule.waitForIdle()
 
                 assertEquals("copilot", SshSessionManager.activeAdapter.value.id)
-                composeRule.onNodeWithText("GitHub Copilot CLI").assertIsDisplayed()
+                composeRule.onNodeWithTag("main_screen_title")
+                    .assertIsDisplayed()
+                    .assertTextEquals("Termux Agent")
 
                 // Draft text survives switching between Chat and Terminal
                 composeRule.onNodeWithTag("chat_input_field").performTextInput("Draft message")
@@ -334,7 +338,9 @@ class MainActivityE2ETest {
                 val connectState = connectTestServer(server.port)
                 assertTrue("Expected Connected but got $connectState", connectState is ConnectionState.Connected)
 
-                composeRule.onNodeWithText("Google Antigravity CLI").assertIsDisplayed()
+                composeRule.onNodeWithTag("main_screen_title")
+                    .assertIsDisplayed()
+                    .assertTextEquals("Termux Agent")
                 composeRule.onNodeWithTag("chat_input_field").performTextInput("check git")
                 composeRule.onNodeWithTag("chat_send_button").performClick()
 
@@ -763,15 +769,15 @@ class MainActivityE2ETest {
 
             composeRule.onNodeWithText("Puerto").performScrollTo().performTextClearance()
             composeRule.onNodeWithText("Puerto").performTextInput("0")
-            composeRule.onNodeWithText("Guardar y Conectar").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+            composeRule.onNodeWithText("Guardar y Conectar").performSemanticsAction(SemanticsActions.OnClick)
             composeRule.onNodeWithText(
                 "Puerto SSH inválido. Introduce un valor entre 1 y 65535."
             ).performScrollTo().assertIsDisplayed()
 
             composeRule.onNodeWithText("Puerto").performScrollTo().performTextClearance()
             composeRule.onNodeWithText("Puerto").performTextInput("8022")
-            composeRule.onNodeWithText("Clave SSH (key)").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
-            composeRule.onNodeWithText("Regenerar clave").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+            composeRule.onNodeWithText("Clave SSH").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+            composeRule.onNodeWithTag("ssh_regenerate_key").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
             composeRule.onNodeWithText(
                 "Nueva clave SSH generada. Copia el comando en Termux."
             ).performScrollTo().assertIsDisplayed()
