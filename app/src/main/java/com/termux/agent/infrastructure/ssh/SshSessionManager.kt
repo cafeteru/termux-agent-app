@@ -146,5 +146,8 @@ object SshSessionManager {
 
     fun sendRawAsync(raw: String) = activeSession.sendRawAsync(raw)
 
+    fun resizePty(cols: Int, rows: Int, pixelWidth: Int = cols * 8, pixelHeight: Int = rows * 16) =
+        activeSession.resizePty(cols, rows, pixelWidth, pixelHeight)
+
     fun disconnect() = activeSession.disconnect(updateState = true)
 }

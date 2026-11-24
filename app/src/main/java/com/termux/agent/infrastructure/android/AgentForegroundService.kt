@@ -366,6 +366,10 @@ class AgentForegroundService : Service() {
             SshSessionManager.sendRawAsync(raw)
         }
 
+        fun resizeTerminal(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) {
+            SshSessionManager.resizePty(cols, rows, pixelWidth, pixelHeight)
+        }
+
         /**
          * Dispatches a permission resolution decision (allow / deny) to the active agent adapter.
          */

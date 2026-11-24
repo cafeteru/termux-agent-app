@@ -18,6 +18,8 @@ Implement and diagnose application behavior while preserving the project archite
 4. Add a focused regression test for behavior changes.
 5. Preserve permission safety, notification action behavior, and SSH session lifecycle.
 6. Run the smallest relevant test first, then the documented Gradle validation when practical.
+7. Keep UI responsibilities split across `MainActivity`, `ui/navigation/`, `ui/theme/`, `ui/screens/`, and focused presentation components.
+8. Preserve dynamic PTY sizing, sticky Ctrl/Alt and raw key delivery, ANSI/CSI/OSC filtering, SSH auth switching, and persistent theme mode.
 
 ## Summary Contract
 

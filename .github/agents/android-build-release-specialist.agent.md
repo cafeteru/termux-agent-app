@@ -18,6 +18,7 @@ Run the smallest reliable validation, then produce a debug APK when application 
 5. Do not change `versionName` or `versionCode` unless the user explicitly requests a release.
 6. Report exact failures, commands, and affected tests. Never present a silent fallback or partial build as success.
 7. Never commit, push, create a PR, merge, or delete branches unless explicitly requested.
+8. For presentation or PTY changes, include focused Compose/E2E evidence and verify the APK on a narrow device with the IME open and dark/light mode toggled.
 
 ## Summary Contract
 

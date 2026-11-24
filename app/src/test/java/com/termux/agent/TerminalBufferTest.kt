@@ -70,6 +70,12 @@ class TerminalBufferTest {
     }
 
     @Test
+    fun unsupportedExtendedCsiSequenceIsRemovedWithoutLeakingText() {
+        val parsed = AnsiTextParser.parse("before\u001B[>4;2mbetween\u001B[38:2:255:0:0mafter")
+        assertEquals("beforebetweenafter", parsed.text)
+    }
+
+    @Test
     fun extractCommandFromLineExtractsAfterShellPrompt() {
         assertEquals("cd Download/", TerminalBuffer.extractCommandFromLine("termux@local:~$ cd Download/"))
         assertEquals("git status", TerminalBuffer.extractCommandFromLine("~ $ git status"))

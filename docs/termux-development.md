@@ -78,3 +78,14 @@ cp -f app/build/outputs/apk/debug/app-debug.apk \
 Install it from Android's Files app at **My files > Downloads**.
 
 Termux's `com.termux.app.api.file.FileViewReceiverActivity` and `FileReceiverActivity` components are disabled in the maintainer's Android environment. APK files therefore open directly with `com.google.android.packageinstaller` instead of Termux's file receiver.
+
+## UI/PTY Validation
+
+After changes to Compose, SSH configuration, terminal input, or PTY sizing:
+
+1. Run the focused unit and Compose/E2E tests for the affected screen.
+2. Verify dark and light themes, the compact navigation drawer, SSH authentication
+   selector, terminal IME focus, sticky Ctrl/Alt keys, and unsupported ANSI output.
+3. Confirm that opening or closing the keyboard updates the PTY dimensions.
+4. Rebuild and copy the debug APK to
+   `/sdcard/Download/termux-agent-0.0.1-debug.apk`.

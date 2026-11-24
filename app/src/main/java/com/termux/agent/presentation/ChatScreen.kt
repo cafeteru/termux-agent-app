@@ -28,9 +28,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -45,7 +47,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,6 +64,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -70,7 +75,6 @@ import com.termux.agent.application.port.AgentAdapter
 import com.termux.agent.domain.model.AdapterEvent
 import com.termux.agent.domain.model.AgentState
 import com.termux.agent.domain.model.ChatMessage
-import com.termux.agent.infrastructure.ssh.WorkspaceBrowser
 
 @Composable
 fun ChatScreen(
@@ -119,32 +123,6 @@ fun ChatScreen(
             .fillMaxSize()
             .imePadding()
     ) {
-        AgentControlBar(
-            activeAdapter = activeAdapter,
-            agentState = agentState,
-            onLaunchAgent = onLaunchAgent,
-            onNewSession = onNewSession,
-            onClearChat = onClearChat,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 2.dp)
-        )
-
-        HorizontalDivider()
-
-        ChatContextBar(
-            selectedWorkspacePath = selectedWorkspacePath,
-            activeConversationId = activeConversationId,
-            activeConversationTitle = activeConversationTitle,
-            supportsSessions = supportsSessions,
-            onOpenWorkspacePicker = onOpenWorkspacePicker,
-            onOpenSessions = onOpenSessions,
-            onNewSession = onNewSession,
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        HorizontalDivider()
-
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -153,6 +131,7 @@ fun ChatScreen(
             if (messages.isEmpty() && agentState != AgentState.WAITING_PERMISSION) {
                 EmptyChatPlaceholder(
                     agentName = activeAdapter.name,
+                    onPromptSelected = onPromptTextChange,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(24.dp)
@@ -200,277 +179,6 @@ fun ChatScreen(
     }
 }
 
-@Composable
-private fun AgentControlBar(
-    activeAdapter: AgentAdapter,
-    agentState: AgentState,
-    onLaunchAgent: () -> Unit,
-    onNewSession: () -> Unit,
-    onClearChat: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var menuExpanded by remember { mutableStateOf(false) }
-    val supportsSessions = activeAdapter.supportsSessions
-
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(
-            modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = agentIconForId(activeAdapter.id),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp)
-            )
-            Text(
-                text = activeAdapter.name,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            AgentStateBadge(state = agentState)
-
-            Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Acciones del agente",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    onDismissRequest = { menuExpanded = false }
-                ) {
-                    if (supportsSessions) {
-                        DropdownMenuItem(
-                            text = { Text("Nueva conversación") },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            },
-                            onClick = {
-                                menuExpanded = false
-                                onNewSession()
-                            }
-                        )
-                    }
-                    DropdownMenuItem(
-                        text = { Text("Iniciar agente") },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        },
-                        onClick = {
-                            menuExpanded = false
-                            onLaunchAgent()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Limpiar chat") },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        },
-                        onClick = {
-                            menuExpanded = false
-                            onClearChat()
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AgentSessionBar(
-    activeConversationId: String?,
-    activeConversationTitle: String?,
-    onOpenSessions: () -> Unit,
-    onNewSession: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val title = activeConversationTitle?.takeIf { it.isNotBlank() } ?: "Nueva conversación"
-    val subtitle = if (activeConversationId != null) {
-        "Sesión ${activeConversationId.take(8)} · Toca para cambiar"
-    } else {
-        "Toca para elegir o retomar una sesión"
-    }
-    Row(
-        modifier = modifier
-            .defaultMinSize(minHeight = 48.dp)
-            .padding(start = 12.dp, end = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .defaultMinSize(minHeight = 48.dp)
-                .clickable(onClick = onOpenSessions)
-                .testTag("agent_session_bar")
-                .semantics(mergeDescendants = true) {}
-                .padding(vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Icon(
-                imageVector = ChatBubbleIcon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp)
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Text(
-                text = "Sesiones",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp)
-            )
-        }
-        IconButton(
-            onClick = onNewSession,
-            modifier = Modifier.testTag("chat_new_session_button")
-        ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = "Nueva conversación",
-                tint = MaterialTheme.colorScheme.primary
-            )
-        }
-    }
-}
-
-@Composable
-private fun ChatContextBar(
-    selectedWorkspacePath: String,
-    activeConversationId: String?,
-    activeConversationTitle: String?,
-    supportsSessions: Boolean,
-    onOpenWorkspacePicker: () -> Unit,
-    onOpenSessions: () -> Unit,
-    onNewSession: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val sessionTitle = activeConversationTitle?.takeIf { it.isNotBlank() } ?: "Nueva conversación"
-
-    Row(
-        modifier = modifier
-            .defaultMinSize(minHeight = 48.dp)
-            .padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .defaultMinSize(minHeight = 48.dp)
-                .clickable(onClick = onOpenWorkspacePicker)
-                .testTag("workspace_selector_bar")
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Icon(
-                imageVector = FolderIcon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(16.dp)
-            )
-            Text(
-                text = WorkspaceBrowser.displayName(selectedWorkspacePath),
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        if (supportsSessions) {
-            Surface(
-                modifier = Modifier
-                    .padding(start = 4.dp)
-                    .size(width = 1.dp, height = 28.dp),
-                color = MaterialTheme.colorScheme.outlineVariant
-            ) {}
-
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .defaultMinSize(minHeight = 48.dp)
-                    .clickable(onClick = onOpenSessions)
-                    .testTag("agent_session_bar")
-                    .padding(start = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(
-                    imageVector = ChatBubbleIcon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(16.dp)
-                )
-                Text(
-                    text = sessionTitle,
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(
-                    onClick = onNewSession,
-                    modifier = Modifier.testTag("chat_new_session_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Nueva conversación",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-        }
-    }
-}
-
 internal val ChatBubbleIcon: ImageVector by lazy {
     ImageVector.Builder(
         name = "ChatBubbleOutline",
@@ -484,80 +192,6 @@ internal val ChatBubbleIcon: ImageVector by lazy {
         ).toNodes(),
         fill = SolidColor(Color.Black)
     ).build()
-}
-
-@Composable
-private fun WorkspaceSelectorBar(
-    selectedWorkspacePath: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier
-            .defaultMinSize(minHeight = 48.dp)
-            .clickable(onClick = onClick)
-            .testTag("workspace_selector_bar")
-            .semantics(mergeDescendants = true) {}
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Icon(
-            imageVector = FolderIcon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(18.dp)
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = WorkspaceBrowser.displayName(selectedWorkspacePath),
-                style = MaterialTheme.typography.labelLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = selectedWorkspacePath.ifBlank { "Usará directorio actual (~)" },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        Text(
-            text = "Cambiar",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp)
-        )
-    }
-}
-
-@Composable
-private fun AgentStateBadge(state: AgentState, modifier: Modifier = Modifier) {
-    val (label, bg, fg) = when (state) {
-        AgentState.IDLE -> Triple("Listo", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
-        AgentState.WORKING -> Triple("Trabajando", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
-        AgentState.WAITING_PERMISSION -> Triple("Permiso", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
-        AgentState.COMPLETED -> Triple("Completado", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
-    }
-
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
-        color = bg
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = fg,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-        )
-    }
 }
 
 @Composable
@@ -649,6 +283,7 @@ private fun ChatMessageItem(message: ChatMessage, modifier: Modifier = Modifier)
 @Composable
 private fun EmptyChatPlaceholder(
     agentName: String,
+    onPromptSelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -681,11 +316,41 @@ private fun EmptyChatPlaceholder(
         Spacer(modifier = Modifier.height(6.dp))
 
         Text(
-            text = "Escribe un prompt abajo para comunicarte con el agente.",
+            text = "Elige una acción rápida o escribe un prompt.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+        ) {
+            SuggestionChip(
+                onClick = { onPromptSelected("git status") },
+                label = { Text("git status") }
+            )
+            SuggestionChip(
+                onClick = { onPromptSelected("Explicar código") },
+                label = { Text("Explicar código") }
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+        ) {
+            SuggestionChip(
+                onClick = { onPromptSelected("Revisar error") },
+                label = { Text("Revisar error") }
+            )
+            SuggestionChip(
+                onClick = { onPromptSelected("Analizar cambios") },
+                label = { Text("Analizar cambios") }
+            )
+        }
     }
 }
 
@@ -699,15 +364,16 @@ private fun ChatInputBar(
     modifier: Modifier = Modifier
 ) {
     val isWorking = agentState == AgentState.WORKING
+    val clipboard = LocalClipboardManager.current
 
-    Row(
+    Column(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         OutlinedTextField(
             value = promptText,
             onValueChange = onTextChange,
+            shape = RoundedCornerShape(24.dp),
             placeholder = {
                 Text(
                     text = if (isWorking) "$agentName está procesando..." else "Prompt para $agentName...",
@@ -718,21 +384,50 @@ private fun ChatInputBar(
             keyboardActions = KeyboardActions(onSend = { onSubmit() }),
             maxLines = 4,
             modifier = Modifier
-                .weight(1f)
+                .fillMaxWidth()
                 .testTag("chat_input_field")
         )
 
-        FilledIconButton(
-            onClick = onSubmit,
-            enabled = promptText.isNotBlank() &&
-                agentState != AgentState.WORKING &&
-                agentState != AgentState.WAITING_PERMISSION,
-            modifier = Modifier.testTag("chat_send_button")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.Send,
-                contentDescription = "Enviar mensaje a $agentName"
-            )
+            TextButton(onClick = { onTextChange(promptText + "/") }) {
+                Text("/")
+            }
+            TextButton(onClick = { onTextChange(promptText + "@") }) {
+                Text("@")
+            }
+            TextButton(
+                onClick = {
+                    val stdout = clipboard.getText()?.text
+                    if (!stdout.isNullOrBlank()) {
+                        onTextChange(
+                            if (promptText.isBlank()) stdout else "$promptText\n$stdout"
+                        )
+                    }
+                }
+            ) {
+                Text("Pegar stdout")
+            }
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            FilledIconButton(
+                onClick = onSubmit,
+                enabled = promptText.isNotBlank() &&
+                    agentState != AgentState.WORKING &&
+                    agentState != AgentState.WAITING_PERMISSION,
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("chat_send_button")
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Send,
+                    contentDescription = "Enviar mensaje a $agentName"
+                )
+            }
         }
     }
 }

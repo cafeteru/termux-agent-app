@@ -72,6 +72,10 @@ class SshPtySession {
 
     @Volatile
     private var lastOutputTimestamp: Long = 0L
+    @Volatile
+    private var ptyCols: Int = 80
+    @Volatile
+    private var ptyRows: Int = 24
     private var completedTurnCounter: Long = 0L
 
     @Volatile
@@ -133,7 +137,7 @@ class SshPtySession {
             val shellChannel = openedSession.openChannel("shell") as ChannelShell
             openedChannel = shellChannel
             shellChannel.setPty(true)
-            shellChannel.setPtyType("xterm-256color", 80, 24, 640, 480)
+            shellChannel.setPtyType("xterm-256color", ptyCols, ptyRows, ptyCols * 8, ptyRows * 16)
 
             val shellInput = shellChannel.inputStream
             val shellOutput = shellChannel.outputStream
@@ -690,6 +694,21 @@ class SshPtySession {
         writeExecutor.execute { sendRaw(raw) }
     }
 
+    fun resizePty(cols: Int, rows: Int, pixelWidth: Int = cols * 8, pixelHeight: Int = rows * 16) {
+        val safeCols = cols.coerceIn(20, 300)
+        val safeRows = rows.coerceIn(5, 200)
+        ptyCols = safeCols
+        ptyRows = safeRows
+        val activeChannel = synchronized(lock) {
+            channel?.takeIf { it.isConnected }
+        } ?: return
+        try {
+            activeChannel.setPtySize(safeCols, safeRows, pixelWidth, pixelHeight)
+        } catch (_: Exception) {
+            // The next shell reopen will use the stored dimensions.
+        }
+    }
+
     private fun writeBytes(payload: ByteArray): Boolean {
         val activeOutput = synchronized(lock) {
             if (channel?.isConnected == true) outputStream else null
@@ -776,7 +795,13 @@ class SshPtySession {
         return try {
             newChannel = activeSession.openChannel("shell") as ChannelShell
             newChannel.setPty(true)
-            newChannel.setPtyType("xterm-256color", 80, 24, 640, 480)
+            newChannel.setPtyType(
+                "xterm-256color",
+                ptyCols,
+                ptyRows,
+                ptyCols * 8,
+                ptyRows * 16
+            )
             newInput = newChannel.inputStream
             newOutput = newChannel.outputStream
             newChannel.connect(timeoutMs)
