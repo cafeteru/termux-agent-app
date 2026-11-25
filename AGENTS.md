@@ -39,7 +39,7 @@ For the current contract and agent-specific behavior, use:
 
 1. Keep changes small, direct, and free of speculative abstractions (YAGNI).
 2. Develop features, fixes, and documentation on descriptive branches and merge them into `main` through pull requests.
-3. Create a pull request only when the user explicitly requests one. Use the `github-pr-creator` skill and its four-section template:
+3. Create a pull request only when the user explicitly requests one, using the `gh` CLI directly or through the `github-pr-creator` skill. Use the skill's four-section template:
    - **What**
    - **Why**
    - **How It Was Tested**
