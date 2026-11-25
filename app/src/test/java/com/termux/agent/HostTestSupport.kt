@@ -1,6 +1,6 @@
 package com.termux.agent
 
-import org.junit.Assume.assumeTrue
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.TimeUnit
@@ -16,14 +16,14 @@ object HostTestSupport {
             environment = mapOf("HOME" to home.absolutePath)
         )
         assumeTrue(
-            "This shell contract requires a host runtime that executes the production command",
-            shellReady
+            shellReady,
+            "This shell contract requires a host runtime that executes the production command"
         )
 
         if (requiresPython) {
             assumeTrue(
-                "Shell contract tests requiring SQLite fixtures need python3",
-                processSucceeds(listOf("python3", "--version"))
+                processSucceeds(listOf("python3", "--version")),
+                "Shell contract tests requiring SQLite fixtures need python3"
             )
         }
     }
@@ -37,7 +37,7 @@ object HostTestSupport {
         }.getOrDefault(false)
         link.delete()
         target.delete()
-        assumeTrue("Shell directory listing test needs symbolic-link support", supported)
+        assumeTrue(supported, "Shell directory listing test needs symbolic-link support")
     }
 
     private fun processSucceeds(

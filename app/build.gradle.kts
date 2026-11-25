@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -21,10 +20,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
     }
@@ -32,6 +27,9 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
+            all {
+                it.useJUnitPlatform()
+            }
         }
     }
 }
@@ -47,14 +45,20 @@ dependencies {
     implementation("com.github.mwiede:jsch:0.2.21")
 
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+    val junitBom = platform("org.junit:junit-bom:5.14.4")
+    testImplementation(junitBom)
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation("junit:junit:4.13.2")
+    testRuntimeOnly("org.junit.vintage:junit-vintage-engine")
     testImplementation(composeBom)
     testImplementation("androidx.compose.ui:ui-test-junit4")
-    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("org.robolectric:robolectric:4.18.1")
     testImplementation("org.apache.sshd:sshd-core:2.14.0")
 }
 
 tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
     maxParallelForks = 1
     maxHeapSize = "1536m"
     jvmArgs("-XX:+UseParallelGC")

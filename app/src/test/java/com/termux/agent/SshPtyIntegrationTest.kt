@@ -2,14 +2,14 @@ package com.termux.agent
 
 import com.termux.agent.infrastructure.terminal.AnsiTextParser
 import com.termux.agent.infrastructure.ssh.*
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 
 class SshPtyIntegrationTest {
 
-    @After
+    @AfterEach
     fun tearDown() {
         SshSessionManager.disconnect()
         SshSessionManager.setActiveAdapterById("agy")
@@ -30,7 +30,7 @@ class SshPtyIntegrationTest {
                 timeoutMs = 5_000
             )
 
-            assertTrue("Expected Connected but got $state", state is ConnectionState.Connected)
+            assertTrue(state is ConnectionState.Connected, "Expected Connected but got $state")
 
             awaitCondition(timeoutMs = 5_000) {
                 SshSessionManager.ptyOutput.value.contains(":~$ ")
@@ -74,7 +74,7 @@ class SshPtyIntegrationTest {
                 timeoutMs = 5_000
             )
 
-            assertTrue("Expected Connected but got $state", state is ConnectionState.Connected)
+            assertTrue(state is ConnectionState.Connected, "Expected Connected but got $state")
 
             awaitCondition(timeoutMs = 5_000) {
                 SshSessionManager.ptyOutput.value.contains("termux@local")
@@ -104,7 +104,7 @@ class SshPtyIntegrationTest {
                 ),
                 timeoutMs = 5_000
             )
-            assertTrue("Expected Connected but got $state", state is ConnectionState.Connected)
+            assertTrue(state is ConnectionState.Connected, "Expected Connected but got $state")
 
             awaitCondition(timeoutMs = 5_000) {
                 SshSessionManager.ptyOutput.value.contains(":~$ ")
@@ -143,7 +143,7 @@ class SshPtyIntegrationTest {
                 ),
                 timeoutMs = 5_000
             )
-            assertTrue("Expected Connected but got $state", state is ConnectionState.Connected)
+            assertTrue(state is ConnectionState.Connected, "Expected Connected but got $state")
 
             awaitCondition(timeoutMs = 5_000) {
                 SshSessionManager.ptyOutput.value.contains(":~$ ")
@@ -173,7 +173,7 @@ class SshPtyIntegrationTest {
                 ),
                 timeoutMs = 5_000
             )
-            assertTrue("Expected Connected but got $state", state is ConnectionState.Connected)
+            assertTrue(state is ConnectionState.Connected, "Expected Connected but got $state")
 
             awaitCondition(timeoutMs = 5_000) {
                 SshSessionManager.ptyOutput.value.contains(":~$ ")
@@ -205,7 +205,7 @@ class SshPtyIntegrationTest {
                 ),
                 timeoutMs = 5_000
             )
-            assertTrue("Expected Connected but got $state", state is ConnectionState.Connected)
+            assertTrue(state is ConnectionState.Connected, "Expected Connected but got $state")
 
             awaitCondition(timeoutMs = 5_000) {
                 SshSessionManager.ptyOutput.value.contains(":~$ ")
@@ -327,7 +327,7 @@ class SshPtyIntegrationTest {
                 ),
                 timeoutMs = 5_000
             )
-            assertTrue("Expected Connected but got $state", state is ConnectionState.Connected)
+            assertTrue(state is ConnectionState.Connected, "Expected Connected but got $state")
 
             val homeListing = SshSessionManager.listDirectories("")
             assertEquals(
@@ -371,7 +371,7 @@ class SshPtyIntegrationTest {
                 ),
                 timeoutMs = 5_000
             )
-            assertTrue("Expected Connected but got $state", state is ConnectionState.Connected)
+            assertTrue(state is ConnectionState.Connected, "Expected Connected but got $state")
 
             awaitCondition(timeoutMs = 5_000) {
                 SshSessionManager.ptyOutput.value.contains(":~$ ")
@@ -448,7 +448,7 @@ class SshPtyIntegrationTest {
                 ),
                 timeoutMs = 5_000
             )
-            assertTrue("Expected Connected but got $state", state is ConnectionState.Connected)
+            assertTrue(state is ConnectionState.Connected, "Expected Connected but got $state")
 
             awaitCondition(timeoutMs = 5_000) {
                 SshSessionManager.agentSessions.value.size == 2
@@ -475,7 +475,7 @@ class SshPtyIntegrationTest {
             awaitCondition(timeoutMs = 5_000) {
                 SshSessionManager.chatMessages.value.any { it.content == "Notas ordenadas." }
             }
-            assertTrue("Expected new PTY channel on switch", server.shellSessionCount.get() >= 2)
+            assertTrue(server.shellSessionCount.get() >= 2, "Expected new PTY channel on switch")
             assertEquals("sess-2", SshSessionManager.activeConversationId.value)
             assertEquals("Notes cleanup", SshSessionManager.activeConversationTitle.value)
             assertTrue(SshSessionManager.chatMessages.value.none { it.content.contains("Auth revisado") })
@@ -487,7 +487,7 @@ class SshPtyIntegrationTest {
             assertTrue(SshSessionManager.startNewSession("/home/termux/termux-agent-app"))
             assertTrue(SshSessionManager.chatMessages.value.isEmpty())
             assertEquals(null, SshSessionManager.activeConversationId.value)
-            assertTrue("Expected new PTY channel on new session", server.shellSessionCount.get() >= 3)
+            assertTrue(server.shellSessionCount.get() >= 3, "Expected new PTY channel on new session")
             awaitCondition(timeoutMs = 5_000) {
                 server.receivedCommands.contains("cd \"/home/termux/termux-agent-app\" && agy")
             }
@@ -550,7 +550,7 @@ class SshPtyIntegrationTest {
                 ),
                 timeoutMs = 5_000
             )
-            assertTrue("Expected Connected but got $state", state is ConnectionState.Connected)
+            assertTrue(state is ConnectionState.Connected, "Expected Connected but got $state")
 
             SshSessionManager.setActiveAdapterById("copilot")
             awaitCondition(timeoutMs = 5_000) {
@@ -578,7 +578,7 @@ class SshPtyIntegrationTest {
             awaitCondition(timeoutMs = 5_000) {
                 SshSessionManager.chatMessages.value.any { it.content == "Notas listas." }
             }
-            assertTrue("Expected new PTY channel on Copilot switch", server.shellSessionCount.get() >= 2)
+            assertTrue(server.shellSessionCount.get() >= 2, "Expected new PTY channel on Copilot switch")
             assertEquals("cop-2", SshSessionManager.activeConversationId.value)
             assertTrue(SshSessionManager.chatMessages.value.none { it.content.contains("Skills revisadas") })
             awaitCondition(timeoutMs = 5_000) {
@@ -589,7 +589,7 @@ class SshPtyIntegrationTest {
             assertTrue(SshSessionManager.startNewSession("/home/termux/termux-agent-app"))
             assertTrue(SshSessionManager.chatMessages.value.isEmpty())
             assertEquals(null, SshSessionManager.activeConversationId.value)
-            assertTrue("Expected new PTY channel on new Copilot session", server.shellSessionCount.get() >= 3)
+            assertTrue(server.shellSessionCount.get() >= 3, "Expected new PTY channel on new Copilot session")
             awaitCondition(timeoutMs = 5_000) {
                 server.receivedCommands.contains("cd \"/home/termux/termux-agent-app\" && copilot")
             }
@@ -618,6 +618,6 @@ class SshPtyIntegrationTest {
             if (condition()) return
             Thread.sleep(20)
         }
-        assertTrue("Condition timed out after ${timeoutMs}ms", condition())
+        assertTrue(condition(), "Condition timed out after ${timeoutMs}ms")
     }
 }

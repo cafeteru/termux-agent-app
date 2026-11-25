@@ -4,6 +4,9 @@ import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import com.termux.agent.presentation.ui.navigation.AppDestination
+import com.termux.agent.presentation.ui.screens.main.MainScreen
+import com.termux.agent.presentation.ui.screens.main.StatusScreen
 
 @Composable
 fun AppNavGraph(

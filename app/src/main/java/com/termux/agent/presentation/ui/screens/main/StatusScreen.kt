@@ -1,25 +1,20 @@
-package com.termux.agent.presentation
+package com.termux.agent.presentation.ui.screens.main
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.pm.PackageManager
-import android.content.res.Configuration
 import android.os.Build
-import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -28,26 +23,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -55,7 +44,6 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -65,13 +53,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedIconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -81,54 +66,48 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.PathParser
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsControllerCompat
-import com.termux.agent.*
 import com.termux.agent.application.config.AppConfig
-import com.termux.agent.infrastructure.android.AgentForegroundService
-import com.termux.agent.infrastructure.agent.AdapterRegistry
-import com.termux.agent.infrastructure.ssh.*
-import com.termux.agent.infrastructure.terminal.AnsiTextParser
 import com.termux.agent.domain.model.AgentState
+import com.termux.agent.infrastructure.agent.AdapterRegistry
+import com.termux.agent.infrastructure.android.AgentForegroundService
+import com.termux.agent.infrastructure.ssh.AgentSessionBrowser
+import com.termux.agent.infrastructure.ssh.AgentSessionSummary
+import com.termux.agent.infrastructure.ssh.AgentWorkspaceGroup
+import com.termux.agent.infrastructure.ssh.AppThemeMode
+import com.termux.agent.infrastructure.ssh.ConnectionState
+import com.termux.agent.infrastructure.ssh.SshConfigStore
+import com.termux.agent.infrastructure.ssh.SshKeyManager
+import com.termux.agent.infrastructure.ssh.SshSessionManager
+import com.termux.agent.presentation.ChatBubbleIcon
+import com.termux.agent.presentation.ChatScreen
+import com.termux.agent.presentation.ConnectionStatusBanner
+import com.termux.agent.presentation.DrawerOptionCard
+import com.termux.agent.presentation.FolderIcon
+import com.termux.agent.presentation.PtyTerminalCard
+import com.termux.agent.presentation.SshConfigScreenContent
+import com.termux.agent.presentation.WorkspacePickerDialog
+import com.termux.agent.presentation.agentIconForId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -137,6 +116,7 @@ enum class AppTab(val title: String) {
     CHAT("Chat"),
     TERMINAL("Terminal")
 }
+
 enum class MainScreen {
     MAIN,
     CONFIG
@@ -147,7 +127,7 @@ fun StatusScreen(
     themeMode: AppThemeMode = SshConfigStore.loadThemeMode(LocalContext.current),
     onThemeModeChange: (AppThemeMode) -> Unit = {},
     initialScreen: MainScreen = MainScreen.MAIN,
-    modifier: Modifier = Modifier
+    @SuppressLint("ModifierParameter") modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val activity = context as? ComponentActivity
@@ -224,7 +204,7 @@ fun StatusScreen(
             title = { Text("Permitir notificaciones") },
             text = { Text("Las notificaciones avisan turnos completados y permisos pendientes.") },
             confirmButton = {
-                androidx.compose.material3.TextButton(onClick = {
+                TextButton(onClick = {
                     showNotificationRationale = false
                     activity.requestPermissions(
                         arrayOf(Manifest.permission.POST_NOTIFICATIONS),
@@ -233,7 +213,7 @@ fun StatusScreen(
                 }) { Text("Permitir") }
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = {
+                TextButton(onClick = {
                     showNotificationRationale = false
                 }) { Text("Ahora no") }
             }
@@ -364,7 +344,8 @@ fun StatusScreen(
                         },
                         onCopySetupCommand = {
                             SshConfigStore.save(context, config)
-                            val cmd = SshKeyManager.buildAuthorizedKeysCommand(config.publicKeyAuthorized)
+                            val cmd =
+                                SshKeyManager.buildAuthorizedKeysCommand(config.publicKeyAuthorized)
                             clipboard.setText(AnnotatedString(cmd))
                             feedbackMessage = "Comando copiado. Pégalo en Termux."
                         },
@@ -381,18 +362,21 @@ fun StatusScreen(
                             )
                             config = updated
                             SshConfigStore.save(context, updated)
-                            feedbackMessage = "Nueva clave SSH generada. Copia el comando en Termux."
+                            feedbackMessage =
+                                "Nueva clave SSH generada. Copia el comando en Termux."
                         },
                         onSaveAndConnect = {
                             val parsedPort = portText.trim().toIntOrNull()
                             if (parsedPort == null || parsedPort !in 1..65535) {
-                                validationError = "Puerto SSH inválido. Introduce un valor entre 1 y 65535."
+                                validationError =
+                                    "Puerto SSH inválido. Introduce un valor entre 1 y 65535."
                                 return@SshConfigScreenContent
                             }
                             validationError = null
                             val normalized = config.copy(
                                 port = parsedPort,
-                                username = config.username.trim().ifBlank { AppConfig.DEFAULT_SSH_USER }
+                                username = config.username.trim()
+                                    .ifBlank { AppConfig.DEFAULT_SSH_USER }
                             )
                             config = normalized
                             SshConfigStore.save(context, normalized)
@@ -449,7 +433,7 @@ fun StatusScreen(
                             selectedTabIndex = selectedTab.ordinal,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            AppTab.values().forEach { tab ->
+                            AppTab.entries.forEach { tab ->
                                 Tab(
                                     selected = selectedTab == tab,
                                     onClick = { selectedTab = tab },
@@ -471,7 +455,9 @@ fun StatusScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Icon(
-                                    imageVector = agentIconForId(activeAdapter.id),
+                                    imageVector = agentIconForId(
+                                        activeAdapter.id
+                                    ),
                                     contentDescription = activeAdapter.name,
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp)
@@ -535,7 +521,9 @@ fun StatusScreen(
                                                 text = { Text("Nueva conversación") },
                                                 onClick = {
                                                     agentMenuExpanded = false
-                                                    SshSessionManager.startNewSessionAsync(selectedWorkspacePath)
+                                                    SshSessionManager.startNewSessionAsync(
+                                                        selectedWorkspacePath
+                                                    )
                                                 }
                                             )
                                         }
@@ -543,7 +531,9 @@ fun StatusScreen(
                                             text = { Text("Iniciar agente") },
                                             onClick = {
                                                 agentMenuExpanded = false
-                                                SshSessionManager.launchActiveAgentAsync(selectedWorkspacePath)
+                                                SshSessionManager.launchActiveAgentAsync(
+                                                    selectedWorkspacePath
+                                                )
                                             }
                                         )
                                         DropdownMenuItem(
@@ -573,7 +563,9 @@ fun StatusScreen(
                                         showWorkspacePicker = true
                                     },
                                     onLaunchAgent = {
-                                        SshSessionManager.launchActiveAgentAsync(selectedWorkspacePath)
+                                        SshSessionManager.launchActiveAgentAsync(
+                                            selectedWorkspacePath
+                                        )
                                     },
                                     onSendPrompt = { prompt ->
                                         SshSessionManager.sendPromptAsync(
@@ -584,7 +576,11 @@ fun StatusScreen(
                                         }
                                     },
                                     onResolvePermission = { allow, optionIndex ->
-                                        AgentForegroundService.resolvePermission(context, allow, optionIndex)
+                                        AgentForegroundService.resolvePermission(
+                                            context,
+                                            allow,
+                                            optionIndex
+                                        )
                                     },
                                     onClearChat = {
                                         SshSessionManager.clearChat()
@@ -600,6 +596,7 @@ fun StatusScreen(
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }
+
                             AppTab.TERMINAL -> {
                                 PtyTerminalCard(
                                     ptyOutput = ptyOutput,
@@ -630,7 +627,9 @@ fun StatusScreen(
                             verticalArrangement = Arrangement.spacedBy(16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            ConnectionStatusBanner(state = sessionState)
+                            ConnectionStatusBanner(
+                                state = sessionState
+                            )
 
                             if (sessionState is ConnectionState.Error || sessionState is ConnectionState.Disconnected) {
                                 Column(
@@ -769,14 +768,20 @@ private fun DrawerOptionsMenu(
                     ),
                     icon = {
                         Icon(
-                            imageVector = agentIconForId(adapter.id),
+                            imageVector = agentIconForId(
+                                adapter.id
+                            ),
                             contentDescription = null,
                             modifier = Modifier.size(18.dp)
                         )
                     },
                     label = {
                         Text(
-                            text = if (adapter.id.equals("copilot", ignoreCase = true)) "Copilot" else "Antigravity",
+                            text = if (adapter.id.equals(
+                                    "copilot",
+                                    ignoreCase = true
+                                )
+                            ) "Copilot" else "Antigravity",
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -841,7 +846,12 @@ private fun AgentSessionsSection(
     val applyWorkspaceFilter = filterByWorkspace && selectedWorkspacePath.isNotBlank()
     val visibleSessions = remember(sessions, applyWorkspaceFilter, selectedWorkspacePath) {
         if (applyWorkspaceFilter) {
-            sessions.filter { AgentSessionBrowser.matchesWorkspace(it.workspacePath, selectedWorkspacePath) }
+            sessions.filter {
+                AgentSessionBrowser.matchesWorkspace(
+                    it.workspacePath,
+                    selectedWorkspacePath
+                )
+            }
         } else {
             sessions
         }
@@ -850,7 +860,11 @@ private fun AgentSessionsSection(
         AgentSessionBrowser.groupSessionsByWorkspace(visibleSessions, selectedWorkspacePath)
     }
     val defaultExpanded = remember(groups, activeConversationId, selectedWorkspacePath) {
-        AgentSessionBrowser.defaultExpandedWorkspaceKey(groups, activeConversationId, selectedWorkspacePath)
+        AgentSessionBrowser.defaultExpandedWorkspaceKey(
+            groups,
+            activeConversationId,
+            selectedWorkspacePath
+        )
     }
     val expandedOverrides = remember(activeAgentId) { mutableStateMapOf<String, Boolean>() }
 
@@ -926,6 +940,7 @@ private fun AgentSessionsSection(
                 isLoading && sessions.isEmpty() -> {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 }
+
                 errorMessage != null && sessions.isEmpty() -> {
                     Column(
                         modifier = Modifier
@@ -946,6 +961,7 @@ private fun AgentSessionsSection(
                         }
                     }
                 }
+
                 groups.isEmpty() -> {
                     Column(
                         modifier = Modifier
@@ -972,6 +988,7 @@ private fun AgentSessionsSection(
                         }
                     }
                 }
+
                 else -> {
                     LazyColumn(
                         modifier = Modifier
@@ -981,9 +998,13 @@ private fun AgentSessionsSection(
                     ) {
                         for (group in groups) {
                             val isExpanded = applyWorkspaceFilter ||
-                                (expandedOverrides[group.workspacePath] ?: (group.workspacePath == defaultExpanded))
+                                    (expandedOverrides[group.workspacePath]
+                                        ?: (group.workspacePath == defaultExpanded))
                             val isSelectedWorkspace = selectedWorkspacePath.isNotBlank() &&
-                                AgentSessionBrowser.matchesWorkspace(group.workspacePath, selectedWorkspacePath)
+                                    AgentSessionBrowser.matchesWorkspace(
+                                        group.workspacePath,
+                                        selectedWorkspacePath
+                                    )
 
                             item(key = "ws:${group.workspacePath}") {
                                 AgentWorkspaceGroupHeader(

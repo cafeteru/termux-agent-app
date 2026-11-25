@@ -17,6 +17,7 @@ Install the required SDK components with:
 sh $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager \
   --sdk_root=$HOME/android-sdk \
   "platforms;android-35" \
+  "build-tools;36.0.0" \
   "build-tools;35.0.0" \
   "build-tools;34.0.0" \
   "platform-tools"

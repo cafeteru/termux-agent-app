@@ -1,19 +1,18 @@
 package com.termux.agent.infrastructure.agent
 
 import com.termux.agent.HostTestSupport
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
 class CopilotTranscriptParserTest {
 
-    @get:Rule
-    val tempFolder = TemporaryFolder()
+    @TempDir
+    lateinit var tempFolder: File
 
     @Test
     fun parseLineHandlesCompactAndRawEventsJsonlAndIgnoresNonChatEvents() {
@@ -58,10 +57,10 @@ class CopilotTranscriptParserTest {
     fun readTranscriptCommandStreamsEventsStripsBloatFallsBackToDbAndRejectsTraversal() {
         HostTestSupport.assumeShellContract(
             CopilotTranscriptParser.READ_TRANSCRIPT_BY_ID_COMMAND,
-            tempFolder.root,
+            tempFolder,
             requiresPython = true
         )
-        val fakeHome = tempFolder.newFolder("copilot-home")
+        val fakeHome = File(tempFolder, "copilot-home").apply { mkdirs() }
         val eventsFile = File(fakeHome, ".copilot/session-state/cop-1/events.jsonl")
         val otherEventsFile = File(fakeHome, ".copilot/session-state/cop-other/events.jsonl")
         eventsFile.parentFile?.mkdirs()

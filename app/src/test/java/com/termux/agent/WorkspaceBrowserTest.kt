@@ -1,19 +1,18 @@
 package com.termux.agent
 
 import com.termux.agent.infrastructure.ssh.*
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.nio.file.Files
 
 class WorkspaceBrowserTest {
 
-    @get:Rule
-    val tempFolder = TemporaryFolder()
+    @TempDir
+    lateinit var tempFolder: File
 
     @Test
     fun parentPathHandlesRootNestedAndTrailingSlashes() {
@@ -86,17 +85,17 @@ class WorkspaceBrowserTest {
     fun shellListingCommandHandlesEmptyNormalSpecialCharsHiddenAndSymlinkDirs() {
         HostTestSupport.assumeShellContract(
             WorkspaceBrowser.LIST_DIRECTORIES_COMMAND,
-            tempFolder.root
+            tempFolder
         )
-        HostTestSupport.assumeSymlinkSupport(tempFolder.root)
-        val emptyDir = tempFolder.newFolder("empty")
+        HostTestSupport.assumeSymlinkSupport(tempFolder)
+        val emptyDir = File(tempFolder, "empty").apply { mkdirs() }
         val emptyResult = runListingScript(emptyDir.absolutePath, homePath = emptyDir.absolutePath)
         assertEquals(
             DirectoryListingResult.Success(emptyDir.canonicalPath, emptyList()),
             emptyResult
         )
 
-        val rootDir = tempFolder.newFolder("workspace")
+        val rootDir = File(tempFolder, "workspace").apply { mkdirs() }
         File(rootDir, "alpha").mkdir()
         File(rootDir, "My Project").mkdir()
         File(rootDir, "Bob's App").mkdir()
@@ -105,14 +104,14 @@ class WorkspaceBrowserTest {
         File(rootDir, "..double-dot").mkdir()
         File(rootDir, "readme.txt").writeText("ignore file")
 
-        val symlinkTarget = tempFolder.newFolder("linked-target")
+        val symlinkTarget = File(tempFolder, "linked-target").apply { mkdirs() }
         Files.createSymbolicLink(
             File(rootDir, "linked-dir").toPath(),
             symlinkTarget.toPath()
         )
 
         val listed = runListingScript(rootDir.absolutePath, homePath = rootDir.absolutePath)
-        assertTrue("Expected Success but got $listed", listed is DirectoryListingResult.Success)
+        assertTrue(listed is DirectoryListingResult.Success, "Expected Success but got $listed")
         val success = listed as DirectoryListingResult.Success
         assertEquals(rootDir.canonicalPath, success.currentPath)
         assertEquals(
